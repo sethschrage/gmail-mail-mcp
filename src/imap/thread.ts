@@ -1,5 +1,12 @@
 /**
- * get_thread (SPEC §6.1 #4): header-based thread discovery without server THREAD (rejected on iCloud).
+ * get_thread (SPEC §6.1 #4).
+ *
+ * Gmail (X-GM-EXT-1 and an \All mailbox): the conversation exactly as Gmail groups it. The seed's
+ * X-GM-THRID is fetched, and All Mail is searched for that thread id, so every message appears once
+ * whatever labels it carries. Spam and Trash are not in All Mail; when the seed itself is there (or
+ * Gmail returns no thread), the header-based discovery below is used instead.
+ *
+ * Header-based discovery (other servers, and the fallback):
  *
  * Seed IDs = References + In-Reply-To + Message-ID of the seed (at most the 25 most recent). Search
  * INBOX, Sent, Archive and the seed's mailbox for messages whose Message-ID, References or
@@ -15,7 +22,7 @@ import type { Config } from '../config.js';
 import { MailError } from '../errors.js';
 import type { ImapManager } from './client.js';
 import { extractMessageIds, fetchSummaryRecords, messageNotFound, messageTime, parseHeaderBlock, type MessageSummary } from './fetch.js';
-import type { MailboxInfo, MailboxRegistry } from './mailboxes.js';
+import { isAllMailbox, type MailboxInfo, type MailboxRegistry } from './mailboxes.js';
 import { chunks, searchStrict, sortUidsDesc, toSequenceSet } from './uids.js';
 
 export const THREAD_MAX_IDS = 25;
@@ -93,6 +100,9 @@ export async function getThread(
     { readOnly: true },
   );
 
+  const gmail = await gmailThread(imap, registry, tz, params);
+  if (gmail) return gmail;
+
   const special = (await registry.specialResolution()).map;
   const boxes: MailboxInfo[] = [];
   for (const mb of [special.inbox, special.sent, special.archive, params.mailbox]) {
@@ -163,4 +173,50 @@ export async function getThread(
     returned: messages.length,
     messages,
   };
+}
+
+/**
+ * The Gmail thread of the seed (see the module comment), or null when the server is not Gmail, has
+ * no \All mailbox, or the thread cannot be found there (the seed is in Spam or Trash).
+ */
+async function gmailThread(
+  imap: ImapManager,
+  registry: MailboxRegistry,
+  tz: string,
+  params: { mailbox: MailboxInfo; uid: number; limit: number },
+): Promise<ThreadResult | null> {
+  if (!(await imap.hasCapability('X-GM-EXT-1'))) return null;
+  const allMail = (await registry.list()).find(isAllMailbox);
+  if (!allMail) return null;
+  const threadId = await imap.withMailbox(
+    params.mailbox.path,
+    async (client) => {
+      const msg = await client.fetchOne(String(params.uid), { uid: true, threadId: true }, { uid: true });
+      if (!msg) throw messageNotFound(params.mailbox.path, params.uid);
+      return msg.threadId ?? null;
+    },
+    { readOnly: true },
+  );
+  if (!threadId) return null;
+  const found = await imap.withMailbox(
+    allMail.path,
+    async (client) => {
+      const uids = await searchStrict(client, { deleted: false, threadId });
+      if (uids.length === 0) return [];
+      const out: Array<{ uid: number; time: number }> = [];
+      for (const part of chunks(uids, 2000)) {
+        const msgs = await client.fetchAll(toSequenceSet(part), { uid: true, envelope: true, internalDate: true }, { uid: true });
+        for (const m of msgs) out.push({ uid: m.uid, time: messageTime(m) });
+      }
+      return out;
+    },
+    { readOnly: true },
+  );
+  if (found.length === 0) return null;
+  found.sort((a, b) => a.time - b.time || a.uid - b.uid);
+  const limited = found.slice(-params.limit);
+  const records = await imap.withMailbox(allMail.path, (client) => fetchSummaryRecords(client, allMail.path, limited.map((f) => f.uid), { snippets: true, timeZone: tz }), { readOnly: true });
+  const byUid = new Map(records.map((r) => [r.summary.uid, r.summary]));
+  const messages = limited.map((f) => byUid.get(f.uid)).filter((m): m is MessageSummary => m !== undefined);
+  return { mailboxes_searched: [allMail.path], total: found.length, returned: messages.length, messages };
 }

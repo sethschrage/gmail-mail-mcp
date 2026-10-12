@@ -496,7 +496,7 @@ export async function createMailbox(imap: ImapManager, registry: MailboxRegistry
     }
     if (!parent && isInboxPath(segments[0] ?? '')) {
       const inbox = mailboxes.find((m) => isInboxPath(m.path));
-      if (inbox?.noInferiors) throw new MailError('FORBIDDEN', 'iCloud does not allow folders inside INBOX (\\NoInferiors). Create the folder at the top level instead.');
+      if (inbox?.noInferiors) throw new MailError('FORBIDDEN', 'The server does not allow folders inside INBOX (\\NoInferiors). Create the folder at the top level instead.');
     }
   }
   if (imap.signal?.aborted) throw new MailError('CANCELLED', 'Cancelled before creating the mailbox; nothing was changed.');

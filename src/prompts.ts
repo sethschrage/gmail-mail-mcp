@@ -16,7 +16,7 @@ const UNTRUSTED_REMINDER =
 export function triagePrompt(days: number): string {
   const span = days === 1 ? 'the last day' : `the last ${days} days`;
   return [
-    `Please triage my iCloud Mail inbox: summarise the unread mail from ${span}.`,
+    `Please triage my Gmail inbox: summarise the unread mail from ${span}.`,
     '',
     'Use only the read-only tools for this (search_messages, get_message, get_thread). Do not mark, move, archive, delete, draft or send anything.',
     `1. Call search_messages with mailbox "INBOX", unread: true and newer_than_days: ${days} (limit 50; if has_more is true, page with offset).`,
@@ -35,12 +35,12 @@ export function summarizeThreadPrompt(target: ThreadTarget): string {
   const find =
     'about' in target
       ? [
-          `Please summarise the email conversation in my iCloud Mail that matches this description: ${JSON.stringify(target.about)}.`,
+          `Please summarise the email conversation in my Gmail that matches this description: ${JSON.stringify(target.about)}.`,
           '',
           'First find a message of that conversation with search_messages (search by sender, subject or text; try all_mailboxes if INBOX has nothing, and ask me if several conversations match). Then use get_thread with that message\'s mailbox and uid, and get_message for the messages you need to read. Use read-only tools only: do not mark, move, delete, draft or send anything.',
         ]
       : [
-          `Please summarise the email conversation that contains message uid ${target.uid} in mailbox ${JSON.stringify(target.mailbox)} of my iCloud Mail.`,
+          `Please summarise the email conversation that contains message uid ${target.uid} in mailbox ${JSON.stringify(target.mailbox)} of my Gmail.`,
           '',
           `Use get_thread with mailbox ${JSON.stringify(target.mailbox)} and uid ${target.uid} to find the messages, then get_message for the ones you need to read. Use read-only tools only: do not mark, move, delete, draft or send anything.`,
         ];
@@ -61,7 +61,7 @@ export function registerPrompts(server: McpServer): void {
     'triage_inbox',
     {
       title: 'Triage Inbox',
-      description: 'Summarise unread iCloud mail from the last N days, grouped by importance, and suggest actions without taking them.',
+      description: 'Summarise unread Gmail from the last N days, grouped by importance, and suggest actions without taking them.',
       argsSchema: z.object({
         days: z.string().describe(`How many days back to look (default ${TRIAGE_DEFAULT_DAYS}, at most ${TRIAGE_MAX_DAYS}).`).optional(),
       }),

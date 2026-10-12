@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Cloud build (Vercel runs it as `npm run vercel-build` before packaging api/icloud-mail.js):
+ * Cloud build (Vercel runs it as `npm run vercel-build` before packaging api/gmail/[account].js):
  * typecheck, then bundle src/http/vercel.ts with every dependency into build/vercel/handler.mjs
  * (same esbuild settings as the .mcpb bundle: ESM, node20, createRequire banner).
  *

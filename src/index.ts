@@ -46,7 +46,7 @@ function main(): void {
   const service = MailService.fromEnv(process.env, {}, { argv: process.argv.slice(2) });
   for (const e of service.configErrors) log.warn(`configuration problem: ${e}`);
   for (const w of service.configWarnings) log.warn(`configuration warning: ${w}`);
-  log.info('icloud-mail MCP server starting', { version: VERSION, tools: toolNamesFor(service.features).length, node: process.version });
+  log.info('gmail-mail MCP server starting', { version: VERSION, tools: toolNamesFor(service.features).length, node: process.version });
 
   const handle = serveStdio(
     () => {

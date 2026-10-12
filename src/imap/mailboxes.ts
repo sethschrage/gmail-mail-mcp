@@ -11,15 +11,24 @@ export type SpecialUse = 'inbox' | SpecialFolder;
 export const SPECIAL_ORDER: readonly SpecialFolder[] = ['drafts', 'sent', 'archive', 'junk', 'trash'];
 
 /**
- * iCloud's own folder names. Without SPECIAL-USE (iCloud advertises none), a top-level folder with
- * exactly this name wins over imapflow's name guess, which would otherwise pick e.g. an Outlook
- * "Sent Items" or "Deleted Items" folder that sorts before Apple's folder (see computeSpecialMap).
+ * Gmail's own folder paths ("[Google Mail]/…" in some countries). Gmail advertises SPECIAL-USE, so
+ * these only matter if it ever stops: a folder with exactly this path then wins over imapflow's
+ * name guess, which could pick a user label such as "Sent Items" (see computeSpecialMap). Archive
+ * has no folder of its own on Gmail; it maps to the \All mailbox ("All Mail").
  */
-export const ICLOUD_DEFAULT_NAMES: Record<SpecialFolder, string> = {
-  sent: 'Sent Messages',
-  trash: 'Deleted Messages',
+export const GMAIL_DEFAULT_PATHS: Readonly<Record<Exclude<SpecialFolder, 'archive'>, readonly string[]>> = {
+  sent: ['[Gmail]/Sent Mail', '[Google Mail]/Sent Mail'],
+  trash: ['[Gmail]/Trash', '[Google Mail]/Bin', '[Google Mail]/Trash'],
+  drafts: ['[Gmail]/Drafts', '[Google Mail]/Drafts'],
+  junk: ['[Gmail]/Spam', '[Google Mail]/Spam'],
+};
+
+/** Name used when a special folder must be created (only Archive, on a server with no \All mailbox). */
+export const CREATE_NAMES: Record<SpecialFolder, string> = {
+  sent: 'Sent',
+  trash: 'Trash',
   drafts: 'Drafts',
-  junk: 'Junk',
+  junk: 'Spam',
   archive: 'Archive',
 };
 
@@ -35,6 +44,7 @@ export const OVERRIDE_ENV: Record<SpecialFolder, string> = {
 export const SPECIAL_ALIASES: Readonly<Record<string, SpecialUse>> = {
   inbox: 'inbox',
   sent: 'sent',
+  'sent mail': 'sent',
   'sent messages': 'sent',
   'sent items': 'sent',
   trash: 'trash',
@@ -45,6 +55,7 @@ export const SPECIAL_ALIASES: Readonly<Record<string, SpecialUse>> = {
   spam: 'junk',
   drafts: 'drafts',
   archive: 'archive',
+  'all mail': 'archive',
 };
 
 const IMAP_SPECIAL_USE: Record<string, SpecialFolder> = {
@@ -151,12 +162,11 @@ function findByName(input: string, mailboxes: readonly MailboxInfo[]): MailboxIn
  * Decide the special-folder mapping. Per kind, first match wins:
  * 1. env override (MAIL_SENT_MAILBOX, …);
  * 2. a real server attribute: imapflow specialUse with source 'extension' (SPECIAL-USE/XLIST) or 'user';
- * 3. a selectable top-level folder named exactly as iCloud names it ("Sent Messages", "Deleted
- *    Messages", "Drafts", "Junk", "Archive"), whatever imapflow guessed for it. iCloud has no
- *    SPECIAL-USE, so imapflow guesses from names and, when several folders match one type, gives
- *    it to the alphabetically first path: a stray "Sent Items", "Bin" or "Draft" from another
- *    client would otherwise replace Apple's real folder (and imapflow then strips the guess from
- *    the real one);
+ * 3. a selectable folder at exactly Gmail's own path ("[Gmail]/Sent Mail", "[Gmail]/Trash",
+ *    "[Gmail]/Drafts", "[Gmail]/Spam"), whatever imapflow guessed for it. Without SPECIAL-USE
+ *    imapflow guesses from names and, when several folders match one type, gives it to the
+ *    alphabetically first path: a user label such as "Sent Items" or "Bin" would otherwise
+ *    replace Gmail's real folder;
  * 4. imapflow's name guess, for a selectable top-level folder only (a nested "Old Mail/Sent" or
  *    "Clients/Trash" is a user folder, never the special one);
  * 5. archive only: the \All mailbox (Gmail's "[Gmail]/All Mail"), since archiving there is what
@@ -189,8 +199,9 @@ export function computeSpecialMap(mailboxes: readonly MailboxInfo[], overrides: 
   }
   for (const kind of pending) {
     if (map[kind]) continue;
-    const defaultName = fold(ICLOUD_DEFAULT_NAMES[kind]);
-    take(kind, mailboxes.find((m) => free(m) && m.parentPath === '' && fold(m.path) === defaultName));
+    if (kind === 'archive') continue;
+    const defaults = GMAIL_DEFAULT_PATHS[kind].map(fold);
+    take(kind, mailboxes.find((m) => free(m) && defaults.includes(fold(m.path))));
   }
   for (const kind of pending) {
     if (map[kind]) continue;
@@ -210,7 +221,7 @@ export function labelSpecials(mailboxes: readonly MailboxInfo[], map: SpecialMap
   return mailboxes.map((m) => ({ ...m, specialUse: byPath.get(m.path) ?? null }));
 }
 
-/** INBOX first, then special folders (Apple Mail order), then everything else alphabetically. */
+/** INBOX first, then special folders (Drafts, Sent, Archive/All Mail, Spam, Trash), then everything else alphabetically. */
 export function sortMailboxesForDisplay(mailboxes: readonly MailboxInfo[]): MailboxInfo[] {
   const rank = (m: MailboxInfo): number => {
     if (m.specialUse === 'inbox') return 0;
@@ -417,7 +428,7 @@ export class MailboxRegistry {
 
   /**
    * The mailbox for a special folder, or null if there is none. With `create: true` a missing
-   * folder is created under iCloud's default name (used for Archive, as Apple Mail does).
+   * folder is created (used for Archive on a server without an \All mailbox; Gmail always has one).
    */
   async resolveSpecial(kind: SpecialFolder, options: { create?: boolean } = {}): Promise<MailboxInfo | null> {
     const { map, missingOverrides } = await this.specialResolution();
@@ -428,7 +439,7 @@ export class MailboxRegistry {
     const found = map[kind];
     if (found) return found;
     if (!options.create) return null;
-    const name = ICLOUD_DEFAULT_NAMES[kind];
+    const name = CREATE_NAMES[kind];
     await this.imap.run((client) => client.mailboxCreate(name));
     this.invalidate();
     const again = (await this.specialResolution()).map[kind];

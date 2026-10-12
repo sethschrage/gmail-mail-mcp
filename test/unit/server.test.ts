@@ -23,7 +23,7 @@ const quiet = createLogger({ level: 'error', sink: () => undefined });
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(path.join(os.tmpdir(), 'icloud-mail-mcp-unit-'));
+  root = mkdtempSync(path.join(os.tmpdir(), 'gmail-mail-mcp-unit-'));
 });
 
 afterEach(() => {
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 function service(env: Record<string, string> = {}): MailService {
-  const base = { ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'abcd-efgh-ijkl-mnop', MAIL_AUDIT_LOG: path.join(root, 'audit.jsonl'), IMAP_HOST: '127.0.0.1', IMAP_PORT: '1' };
+  const base = { GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'abcd-efgh-ijkl-mnop', MAIL_AUDIT_LOG: path.join(root, 'audit.jsonl'), IMAP_HOST: '127.0.0.1', IMAP_PORT: '1' };
   return new MailService(loadConfig({ ...base, ...env }, { platform: 'linux', home: root }), { logger: quiet, platform: 'linux' });
 }
 

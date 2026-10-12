@@ -1,5 +1,5 @@
 /**
- * App-specific password resolution: ICLOUD_APP_PASSWORD, else the macOS Keychain (SPEC §3).
+ * Google app password resolution: GMAIL_APP_PASSWORD, else the macOS Keychain (SPEC §3).
  *
  * The Keychain is read with `execFile('/usr/bin/security', [...])` (no shell), a 15 s timeout, and
  * only on darwin. The resolved password is cached for the process lifetime and registered with the
@@ -13,13 +13,13 @@ import { localPartOf } from './smtp/address.js';
 import { registerSecret } from './log.js';
 
 export const APP_PASSWORD_HELP =
-  'Create an app-specific password at account.apple.com → Sign-In and Security → App-Specific Passwords, then either set it as ' +
-  'ICLOUD_APP_PASSWORD (the "App-specific password" field in the extension settings) or store it in the macOS Keychain with: ' +
-  'security add-generic-password -s icloud-mail-mcp -a <your iCloud email> -U -w';
+  'Create an app password at https://myaccount.google.com/apppasswords (2-Step Verification must be on for the Google Account), then either set it as ' +
+  'GMAIL_APP_PASSWORD (the "App password" field in the extension settings) or store it in the macOS Keychain with: ' +
+  'security add-generic-password -s gmail-mail-mcp -a <your Gmail address> -U -w';
 
-/** Cloud version: the password comes from connector headers or the Vercel env, never the Keychain. */
+/** Cloud version: the password comes from the Vercel env (per account), never the Keychain. */
 export const CLOUD_PASSWORD_HELP =
-  'Create an app-specific password at account.apple.com → Sign-In and Security → App-Specific Passwords, then either send it in the X-ICloud-Password connector header or set ICLOUD_PASSWORD (Sensitive, Production) in the Vercel project\'s environment variables and redeploy.';
+  'Create an app password at https://myaccount.google.com/apppasswords (2-Step Verification must be on for the Google Account), then set it as GMAIL_<ACCOUNT>_PASSWORD (Sensitive, Production) in the Vercel project\'s environment variables, where <ACCOUNT> is this connector\'s account name in capitals (the last part of its URL), and redeploy.';
 
 /** The password help for this runtime. */
 export function passwordHelp(): string {
@@ -106,9 +106,9 @@ export class CredentialProvider {
   /** Where the password will come from, without reading it (for get_account_info). */
   describeSource(): string {
     if (this.sourceLabel) return this.sourceLabel;
-    if (this.config.password) return 'ICLOUD_APP_PASSWORD environment variable';
+    if (this.config.password) return 'GMAIL_APP_PASSWORD environment variable';
     if (this.platform === 'darwin') return `macOS Keychain (service "${this.config.keychainService}", account "${this.config.email}")`;
-    return 'none configured (ICLOUD_APP_PASSWORD is not set and the Keychain is only available on macOS)';
+    return 'none configured (GMAIL_APP_PASSWORD is not set and the Keychain is only available on macOS)';
   }
 
   async getPassword(): Promise<ResolvedPassword> {
@@ -137,10 +137,10 @@ export class CredentialProvider {
       return { password: this.config.password, source: 'env' };
     }
     if (!this.config.email) {
-      throw new MailError('CONFIG', `ICLOUD_EMAIL is not set, so the Keychain entry cannot be looked up. ${APP_PASSWORD_HELP}`);
+      throw new MailError('CONFIG', `GMAIL_EMAIL is not set, so the Keychain entry cannot be looked up. ${APP_PASSWORD_HELP}`);
     }
     if (this.platform !== 'darwin') {
-      throw new MailError('CONFIG', `No app-specific password is configured (ICLOUD_APP_PASSWORD is not set, and the Keychain fallback only works on macOS). ${APP_PASSWORD_HELP}`);
+      throw new MailError('CONFIG', `No app-specific password is configured (GMAIL_APP_PASSWORD is not set, and the Keychain fallback only works on macOS). ${APP_PASSWORD_HELP}`);
     }
     const password = await readKeychainPassword({
       service: this.config.keychainService,
@@ -169,12 +169,12 @@ export async function readKeychainPassword(opts: {
   if (result.error) {
     const e = result.error;
     if (e.code === 'ENOENT') {
-      throw new MailError('CONFIG', `Could not run ${opts.securityPath} to read the Keychain. Set ICLOUD_APP_PASSWORD instead. ${APP_PASSWORD_HELP}`);
+      throw new MailError('CONFIG', `Could not run ${opts.securityPath} to read the Keychain. Set GMAIL_APP_PASSWORD instead. ${APP_PASSWORD_HELP}`);
     }
     if (e.killed || e.code === 'ETIMEDOUT') {
       throw new MailError(
         'CONFIG',
-        `Reading the password from the Keychain timed out after ${Math.round(opts.timeoutMs / 1000)} s (a Keychain access prompt may be waiting for you; click "Always Allow"). Or set ICLOUD_APP_PASSWORD instead.`,
+        `Reading the password from the Keychain timed out after ${Math.round(opts.timeoutMs / 1000)} s (a Keychain access prompt may be waiting for you; click "Always Allow"). Or set GMAIL_APP_PASSWORD instead.`,
       );
     }
     // security exits with 44 when the item does not exist.
@@ -186,7 +186,7 @@ export async function readKeychainPassword(opts: {
     }
     throw new MailError(
       'CONFIG',
-      `Reading the password from the Keychain failed (exit code ${result.code ?? 'unknown'}). Check the item with: security find-generic-password -s ${opts.service} -a ${opts.account}. Or set ICLOUD_APP_PASSWORD instead.`,
+      `Reading the password from the Keychain failed (exit code ${result.code ?? 'unknown'}). Check the item with: security find-generic-password -s ${opts.service} -a ${opts.account}. Or set GMAIL_APP_PASSWORD instead.`,
     );
   }
   const password = result.stdout.replace(/\r?\n$/, '');

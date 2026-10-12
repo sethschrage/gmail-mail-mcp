@@ -58,8 +58,8 @@ export class FakeUpstash {
 export function cloudEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     MCP_ACCESS_KEY: ACCESS_KEY,
-    ICLOUD_EMAIL: ACCOUNT,
-    ICLOUD_PASSWORD: PASSWORD,
+    GMAIL_EMAIL: ACCOUNT,
+    GMAIL_PASSWORD: PASSWORD,
     IMAP_HOST: '127.0.0.1',
     IMAP_PORT: '1993',
     IMAP_SECURE: 'true',

@@ -115,7 +115,7 @@ export const fromField = (): z.ZodString =>
     .min(1)
     .max(998)
     .describe(
-      'From address. Must be one of the account\'s allowed addresses (the iCloud address, the "From address (optional)" and "Other From addresses (optional)" settings; see get_account_info from.allowed). Omit to use the default (for replies and forwards: the allowed address the original came from or was sent to).',
+      'From address. Must be one of the account\'s allowed addresses (the Gmail address, the "From address (optional)" and "Other From addresses (optional)" settings, which must be Gmail "Send mail as" addresses; see get_account_info from.allowed). Omit to use the default (for replies and forwards: the allowed address the original came from or was sent to).',
     );
 
 export const bodyField = (what: string): z.ZodString => z.string().max(2_000_000).describe(what);

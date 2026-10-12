@@ -34,8 +34,8 @@ async function setup(extraFolders: Array<string | FakeFolder>, opts: FakeOptions
   server = await startFakeIcloud([...ICLOUD_STANDARD, ...extraFolders.map((f) => (typeof f === 'string' ? { path: f } : f))], opts);
   const cfg = loadConfig(
     {
-      ICLOUD_EMAIL: 'me@icloud.com',
-      ICLOUD_APP_PASSWORD: 'abcd-efgh-ijkl-mnop',
+      GMAIL_EMAIL: 'me@icloud.com',
+      GMAIL_APP_PASSWORD: 'abcd-efgh-ijkl-mnop',
       IMAP_HOST: '127.0.0.1',
       IMAP_PORT: String(server.port),
       IMAP_SECURE: 'false',
@@ -91,7 +91,7 @@ describe('special folders without SPECIAL-USE', () => {
   it('falls back to a top-level name guess when Apple\'s folder is missing', async () => {
     server = await startFakeIcloud([{ path: 'Drafts' }, { path: 'Sent Items' }, { path: 'Deleted Messages' }, { path: 'Junk' }]);
     const cfg = loadConfig(
-      { ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'x', IMAP_HOST: '127.0.0.1', IMAP_PORT: String(server.port), IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true', MAIL_AUDIT_LOG: 'off' },
+      { GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'x', IMAP_HOST: '127.0.0.1', IMAP_PORT: String(server.port), IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true', MAIL_AUDIT_LOG: 'off' },
       { platform: 'linux', home },
     );
     svc = new MailService(cfg, { logger: createLogger({ level: 'error', sink: () => undefined }), platform: 'linux' });
@@ -209,7 +209,7 @@ describe('STARTTLS is required without implicit TLS', () => {
   });
 
   it('the test-only plaintext switch is reported as a configuration warning', () => {
-    const r = loadConfig({ ICLOUD_EMAIL: 'me@icloud.com', IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true' }, { platform: 'linux', home });
+    const r = loadConfig({ GMAIL_EMAIL: 'me@icloud.com', IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true' }, { platform: 'linux', home });
     expect(r.warnings.join(' ')).toMatch(/IMAP_ALLOW_PLAINTEXT/);
   });
 });

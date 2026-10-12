@@ -204,7 +204,7 @@ describe('markQuarantined', () => {
     expect(ok).toBeUndefined();
     expect(calls[0]?.file).toBe('/usr/bin/xattr');
     expect(calls[0]?.args.slice(0, 2)).toEqual(['-w', 'com.apple.quarantine']);
-    expect(calls[0]?.args[2]).toMatch(/^0081;65000000;icloud-mail-mcp;[0-9A-F-]{36}$/);
+    expect(calls[0]?.args[2]).toMatch(/^0081;65000000;gmail-mail-mcp;[0-9A-F-]{36}$/);
     expect(calls[0]?.args[3]).toBe('/Users/j/Downloads/a.zip');
     const failed = await markQuarantined('/x', { platform: 'darwin', exec: () => Promise.resolve({ stdout: '', stderr: 'no', code: 1 }) });
     expect(failed).toMatch(/could not be marked/);

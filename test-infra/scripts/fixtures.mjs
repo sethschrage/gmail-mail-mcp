@@ -200,7 +200,7 @@ export function buildFixtures() {
             subject: 'Welcome to your test mailbox',
             date: '2026-01-05T08:00:00-08:00',
             messageId: 'welcome-0001@example.com',
-            root: textPart('Hello Test User,\n\nThis mailbox is a local fixture used by the icloud-mail-mcp integration tests.\nNothing in it is real.\n\nRegards,\nMailbox Admin\n', { encoding: '7bit', charset: 'us-ascii' })
+            root: textPart('Hello Test User,\n\nThis mailbox is a local fixture used by the gmail-mail-mcp integration tests.\nNothing in it is real.\n\nRegards,\nMailbox Admin\n', { encoding: '7bit', charset: 'us-ascii' })
         }), 'plain text');
 
     add('INBOX', 'lunch', ['\\Seen', '\\Answered'], '2026-02-10T10:02:00-08:00',

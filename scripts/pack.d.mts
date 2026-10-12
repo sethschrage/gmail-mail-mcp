@@ -6,7 +6,7 @@ export declare function listZipEntries(buf: Buffer): string[];
 export declare function formatBytes(n: number): string;
 export interface PackOptions {
   stageDir?: string;
-  /** Defaults to dist/icloud-mail-<version>.mcpb. */
+  /** Defaults to dist/gmail-mail-<version>.mcpb. */
   outFile?: string;
   typecheck?: boolean;
   /** Progress lines; null for silence. */

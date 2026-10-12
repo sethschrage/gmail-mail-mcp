@@ -16,13 +16,13 @@ fi
 rm -f ca.key ca.crt ca.srl server.key server.csr server.crt server.ext
 
 openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
-  -subj "/O=icloud-mail-mcp test infra/CN=icloud-mail-mcp Test CA" \
+  -subj "/O=gmail-mail-mcp test infra/CN=gmail-mail-mcp Test CA" \
   -keyout ca.key -out ca.crt \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
 
 openssl req -newkey rsa:2048 -nodes -sha256 \
-  -subj "/O=icloud-mail-mcp test infra/CN=localhost" \
+  -subj "/O=gmail-mail-mcp test infra/CN=localhost" \
   -keyout server.key -out server.csr 2>/dev/null
 
 cat > server.ext <<'EXT'

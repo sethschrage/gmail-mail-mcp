@@ -86,7 +86,7 @@ afterAll(() => {
 
 function manager(env: Record<string, string>, behaviour: { failAuthFor?: string[]; failConnect?: Error } = {}, extra: { idleCloseMs?: number; healthCheckAfterMs?: number } = {}) {
   FakeImap.instances = [];
-  const { config } = loadConfig({ ICLOUD_APP_PASSWORD: 'app-pass-1234', MAIL_AUDIT_LOG: 'off', ...env }, { platform: 'linux', home: dir });
+  const { config } = loadConfig({ GMAIL_APP_PASSWORD: 'app-pass-1234', MAIL_AUDIT_LOG: 'off', ...env }, { platform: 'linux', home: dir });
   const credentials = new CredentialProvider(config, { platform: 'linux' });
   let invalidated = 0;
   const origInvalidate = credentials.invalidate.bind(credentials);
@@ -123,7 +123,7 @@ describe('login candidates', () => {
 
 describe('ImapManager', () => {
   it('connects lazily with a non-stdout logger, TLS >= 1.2 and disables WITHIN', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@icloud.com' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
     expect(created).toHaveLength(0);
     const client = await m.connection();
     expect(created).toHaveLength(1);
@@ -139,7 +139,7 @@ describe('ImapManager', () => {
   });
 
   it('falls back to the local part after an auth failure and remembers it', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@icloud.com' }, { failAuthFor: ['john@icloud.com'] });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' }, { failAuthFor: ['john@icloud.com'] });
     await m.connection();
     expect(created.map((o) => o.auth?.user)).toEqual(['john@icloud.com', 'john']);
     expect(m.effectiveUser).toBe('john');
@@ -149,7 +149,7 @@ describe('ImapManager', () => {
   });
 
   it('does not retry with the local part for custom domains, and invalidates cached credentials', async () => {
-    const { m, created, invalidations } = manager({ ICLOUD_EMAIL: 'me@custom.dev' }, { failAuthFor: ['me@custom.dev'] });
+    const { m, created, invalidations } = manager({ GMAIL_EMAIL: 'me@custom.dev' }, { failAuthFor: ['me@custom.dev'] });
     const err = await m.connection().then(
       () => null,
       (e: unknown) => e as MailError,
@@ -163,20 +163,20 @@ describe('ImapManager', () => {
   });
 
   it('reports both logins when the fallback also fails', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@icloud.com' }, { failAuthFor: ['john@icloud.com', 'john'] });
+    const { m } = manager({ GMAIL_EMAIL: 'john@icloud.com' }, { failAuthFor: ['john@icloud.com', 'john'] });
     const err = await m.connection().catch((e: unknown) => e as MailError);
     expect((err as MailError).message).toContain('"john@icloud.com" and "john"');
   });
 
   it('shares one in-flight connect between concurrent callers', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     const [a, b] = await Promise.all([m.connection(), m.connection()]);
     expect(a).toBe(b);
     expect(created).toHaveLength(1);
   });
 
   it('creates a new instance after the connection closes (ImapFlow cannot reconnect)', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     const first = await m.connection();
     (FakeImap.instances[0] as FakeImap).kill();
     const second = await m.connection();
@@ -188,7 +188,7 @@ describe('ImapManager', () => {
   });
 
   it('runs mailbox work under a lock (EXAMINE for reads) and always releases it', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     const exists = await m.withMailbox('INBOX', (_c, mb) => Promise.resolve(mb.exists), { readOnly: true });
     expect(exists).toBe(3);
     const fake = FakeImap.instances[0] as FakeImap;
@@ -198,7 +198,7 @@ describe('ImapManager', () => {
   });
 
   it('retries a read once on a fresh connection when the connection died, but never a write', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     let calls = 0;
     const result = await m.withMailbox(
       'INBOX',
@@ -232,7 +232,7 @@ describe('ImapManager', () => {
   });
 
   it('probes a long-idle connection with NOOP and replaces it when it does not answer', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@custom.dev' }, {}, { healthCheckAfterMs: 0 });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@custom.dev' }, {}, { healthCheckAfterMs: 0 });
     await m.run(() => Promise.resolve(1));
     const first = FakeImap.instances[0] as FakeImap;
     await m.run(() => Promise.resolve(2));
@@ -245,14 +245,14 @@ describe('ImapManager', () => {
   });
 
   it('skips the probe when the connection was used recently', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     await m.run(() => Promise.resolve(1));
     await m.run(() => Promise.resolve(2));
     expect((FakeImap.instances[0] as FakeImap).noops).toBe(0);
   });
 
   it('logs out after the idle timeout', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev' }, {}, { idleCloseMs: 20 });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' }, {}, { idleCloseMs: 20 });
     await m.run(() => Promise.resolve(1));
     const fake = FakeImap.instances[0] as FakeImap;
     await new Promise((r) => setTimeout(r, 80));
@@ -261,7 +261,7 @@ describe('ImapManager', () => {
   });
 
   it('close() logs out and refuses further work', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     await m.connection();
     await m.close();
     expect((FakeImap.instances[0] as FakeImap).loggedOut).toBe(true);
@@ -269,7 +269,7 @@ describe('ImapManager', () => {
   });
 
   it('release() logs out but a later operation reconnects', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev' });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' });
     await m.connection();
     await m.release();
     expect((FakeImap.instances[0] as FakeImap).loggedOut).toBe(true);
@@ -280,19 +280,19 @@ describe('ImapManager', () => {
   });
 
   it('maps connection failures to friendly errors', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev' }, { failConnect: Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:993'), { code: 'ECONNREFUSED' }) });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' }, { failConnect: Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:993'), { code: 'ECONNREFUSED' }) });
     await expect(m.connection()).rejects.toMatchObject({ code: 'CONNECTION', message: expect.stringMatching(/Could not talk to the IMAP server imap\.mail\.me\.com:993 \(ECONNREFUSED\)/) as string });
   });
 
   it('trusts the extra CA from MAIL_TLS_CA_FILE in addition to the system roots', () => {
     const ca = path.join(dir, 'ca.pem');
     writeFileSync(ca, '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n');
-    const { m } = manager({ ICLOUD_EMAIL: 'john@custom.dev', MAIL_TLS_CA_FILE: ca });
+    const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev', MAIL_TLS_CA_FILE: ca });
     const opts = m.tlsOptions();
     expect(Array.isArray(opts.ca)).toBe(true);
     expect((opts.ca as string[]).length).toBe(tls.rootCertificates.length + 1);
     expect(opts.rejectUnauthorized).toBeUndefined();
-    const missing = manager({ ICLOUD_EMAIL: 'john@custom.dev', MAIL_TLS_CA_FILE: path.join(dir, 'nope.pem') }).m;
+    const missing = manager({ GMAIL_EMAIL: 'john@custom.dev', MAIL_TLS_CA_FILE: path.join(dir, 'nope.pem') }).m;
     expect(() => missing.tlsOptions()).toThrow(/MAIL_TLS_CA_FILE could not be read/);
   });
 });
@@ -300,7 +300,7 @@ describe('ImapManager', () => {
 describe('stuck connections', () => {
   // imap-4: a lock wait that times out means the holder is stuck: reset and retry once, even for writes.
   it('replaces the connection after a mailbox lock timeout and retries once', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@icloud.com' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
     FakeImap.lockErrors = [Object.assign(new Error('lock wait timed out'), { code: 'LockTimeout' })];
     const r = await m.withMailbox('INBOX', async () => 'ok', { readOnly: false, retry: false });
     expect(r).toBe('ok');
@@ -309,7 +309,7 @@ describe('stuck connections', () => {
   });
 
   it('gives up with a CONNECTION error when the lock also times out on the new connection', async () => {
-    const { m } = manager({ ICLOUD_EMAIL: 'john@icloud.com' });
+    const { m } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
     const lockErr = (): Error => Object.assign(new Error('lock wait timed out'), { code: 'LockTimeout' });
     FakeImap.lockErrors = [lockErr(), lockErr()];
     const e = await m.withMailbox('INBOX', async () => 'ok', { readOnly: true }).catch((err: unknown) => err as MailError);
@@ -322,7 +322,7 @@ describe('stuck connections', () => {
 describe('connection options', () => {
   // imap-9: no ENABLE CONDSTORE / UTF8=ACCEPT after login.
   it('disables imapflow\'s auto-ENABLE and QRESYNC', async () => {
-    const { m, created } = manager({ ICLOUD_EMAIL: 'john@icloud.com' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
     await m.connection();
     expect(created[0]?.disableAutoEnable).toBe(true);
     expect(created[0]?.qresync).toBe(false);
@@ -330,13 +330,13 @@ describe('connection options', () => {
 
   // tls-1: without implicit TLS, STARTTLS is mandatory unless the test-only switch is set.
   it('requires STARTTLS when IMAP_SECURE=false', async () => {
-    const a = manager({ ICLOUD_EMAIL: 'john@icloud.com', IMAP_SECURE: 'false' });
+    const a = manager({ GMAIL_EMAIL: 'john@icloud.com', IMAP_SECURE: 'false' });
     await a.m.connection();
     expect(a.created[0]?.doSTARTTLS).toBe(true);
-    const b = manager({ ICLOUD_EMAIL: 'john@icloud.com', IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true' });
+    const b = manager({ GMAIL_EMAIL: 'john@icloud.com', IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true' });
     await b.m.connection();
     expect(b.created[0]?.doSTARTTLS).toBeUndefined();
-    const c = manager({ ICLOUD_EMAIL: 'john@icloud.com' });
+    const c = manager({ GMAIL_EMAIL: 'john@icloud.com' });
     await c.m.connection();
     expect(c.created[0]?.doSTARTTLS).toBeUndefined();
   });

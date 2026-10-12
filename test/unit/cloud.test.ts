@@ -54,7 +54,7 @@ describe('loginFromRequest', () => {
 describe('cloud configuration', () => {
   const load = (env: NodeJS.ProcessEnv) => loadConfig(env, { runtime: 'cloud', platform: 'linux', home: '/nonexistent', systemTimezone: 'UTC' });
 
-  it('accepts ICLOUD_PASSWORD, keeps no disk paths, audits to stdout and shares limits through Upstash', () => {
+  it('accepts GMAIL_PASSWORD, keeps no disk paths, audits to stdout and shares limits through Upstash', () => {
     const { config, errors } = load(cloudEnv());
     expect(errors).toEqual([]);
     expect(config.runtime).toBe('cloud');
@@ -80,10 +80,10 @@ describe('cloud configuration', () => {
   });
 
   it('explains how to log in when neither headers nor env provide one', () => {
-    const noEmail = load(cloudEnv({ ICLOUD_EMAIL: undefined, ICLOUD_PASSWORD: undefined }));
+    const noEmail = load(cloudEnv({ GMAIL_EMAIL: undefined, GMAIL_PASSWORD: undefined }));
     expect(noEmail.errors).toHaveLength(1);
-    expect(noEmail.errors[0]).toMatch(/X-ICloud-Email.*X-ICloud-Password.*ICLOUD_EMAIL and ICLOUD_PASSWORD/);
-    const noPassword = load(cloudEnv({ ICLOUD_PASSWORD: undefined }));
+    expect(noEmail.errors[0]).toMatch(/X-ICloud-Email.*X-ICloud-Password.*GMAIL_EMAIL and GMAIL_PASSWORD/);
+    const noPassword = load(cloudEnv({ GMAIL_PASSWORD: undefined }));
     expect(noPassword.errors[0]).toMatch(/No iCloud login/);
   });
 
@@ -99,7 +99,7 @@ describe('cloud configuration', () => {
   });
 
   it('locally, refuses MAIL_AUDIT_LOG=stdout (stdout carries the MCP protocol) but accepts stderr', () => {
-    const local = (v: string) => loadConfig({ ICLOUD_EMAIL: 'a@icloud.com', MAIL_AUDIT_LOG: v }, { runtime: 'local', platform: 'linux', home: '/h' });
+    const local = (v: string) => loadConfig({ GMAIL_EMAIL: 'a@icloud.com', MAIL_AUDIT_LOG: v }, { runtime: 'local', platform: 'linux', home: '/h' });
     expect(local('stdout').errors.join(' ')).toMatch(/only available in the cloud/);
     expect(local('stderr').config.auditLog).toBe('stderr');
     expect(local('stderr').config.quotaStore).toEqual({ kind: 'none' });
@@ -158,7 +158,7 @@ describe('UpstashQuota', () => {
     expect(fake.requests[0]?.authorization).toBe('Bearer tok');
     const keys = [...fake.data.keys()];
     expect(keys.every((k) => k.includes(accountKey('seth@icloud.com')))).toBe(true);
-    expect(keys.map((k) => k.replace(/^icloud-mail:v1:/, '')).join(' ')).not.toMatch(/seth|icloud/i);
+    expect(keys.map((k) => k.replace(/^gmail-mail:v1:/, '')).join(' ')).not.toMatch(/seth|icloud/i);
   });
 
   it('fails closed when Upstash is unreachable or refuses the token', async () => {
@@ -195,7 +195,7 @@ describe('audit log to the Vercel logs', () => {
     }) as typeof process.stdout.write);
     await new AuditLog('stdout').record({ tool: 'send_email', result: 'ok', recipients: ['b@example.com'], subject: 'Hi' });
     expect(writes).toHaveLength(1);
-    expect(writes[0]).toMatch(/^icloud-mail-audit \{.*"tool":"send_email".*\}\n$/);
+    expect(writes[0]).toMatch(/^gmail-mail-audit \{.*"tool":"send_email".*\}\n$/);
   });
 });
 
@@ -246,7 +246,7 @@ describe('cloud HTTP handler (no mail server)', () => {
   });
 
   it('tells a caller without any login which headers or env vars to add', async () => {
-    handler = createCloudHandler({ env: cloudEnv({ ICLOUD_EMAIL: undefined, ICLOUD_PASSWORD: undefined }) });
+    handler = createCloudHandler({ env: cloudEnv({ GMAIL_EMAIL: undefined, GMAIL_PASSWORD: undefined }) });
     const { client, close } = await connectCloud(handler);
     const r = await client.callTool({ name: 'search_messages', arguments: {} });
     expect(r.isError).toBe(true);

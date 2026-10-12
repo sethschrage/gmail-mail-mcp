@@ -36,6 +36,7 @@ import {
 } from './imap/ops.js';
 import { searchMessages, type SearchCriteria, type SearchResult } from './imap/search.js';
 import { getThread, type ThreadResult } from './imap/thread.js';
+import { labelMessages, type LabelResult } from './imap/labels.js';
 import { log as defaultLogger, redact, type Logger } from './log.js';
 import { createSharedQuota, type FetchFn, type SharedQuota } from './quota.js';
 import { settingsPlace } from './runtime.js';
@@ -310,10 +311,10 @@ export class MailService {
   /** Throw a CONFIG error describing every configuration problem (used by all tools but get_account_info). */
   assertConfigured(): void {
     if (this.configErrors.length === 0) return;
-    const needsPasswordHelp = this.configErrors.some((e) => /ICLOUD_EMAIL|PASSWORD/i.test(e));
+    const needsPasswordHelp = this.configErrors.some((e) => /GMAIL_EMAIL|PASSWORD/i.test(e));
     throw new MailError(
       'CONFIG',
-      `The iCloud Mail server is not configured correctly:\n- ${this.configErrors.join('\n- ')}${needsPasswordHelp && this.config.runtime !== 'cloud' ? `\n${passwordHelp()}` : ''}`,
+      `The Gmail server is not configured correctly:\n- ${this.configErrors.join('\n- ')}${needsPasswordHelp && this.config.runtime !== 'cloud' ? `\n${passwordHelp()}` : ''}`,
     );
   }
 
@@ -324,7 +325,7 @@ export class MailService {
 
   private assertCanSend(): void {
     this.assertWritable('Sending');
-    if (!this.config.allowSend) throw new MailError('FORBIDDEN', `Sending is disabled (${settingName('MAIL_ALLOW_SEND')} is off). Save a draft instead; the user can send it from Apple Mail.`);
+    if (!this.config.allowSend) throw new MailError('FORBIDDEN', `Sending is disabled (${settingName('MAIL_ALLOW_SEND')} is off). Save a draft instead; the user can send it from Gmail.`);
   }
 
   private checkSignal(signal: AbortSignal | undefined, what: string): void {
@@ -364,6 +365,9 @@ export class MailService {
   ): Promise<SearchResult> {
     this.assertConfigured();
     if (params.flagColor !== undefined && !isFlagColor(params.flagColor)) throw new MailError('INVALID_INPUT', `Unknown flag_color "${String(params.flagColor)}".`);
+    if (params.gmailQuery !== undefined && params.gmailQuery.trim() !== '' && !(await this.imap.hasCapability('X-GM-EXT-1'))) {
+      throw new MailError('INVALID_INPUT', 'gmail_query needs a Gmail server (X-GM-EXT-1), and this server is not one. Use query, from, to, subject and the other criteria instead.');
+    }
     const { mailbox: mailboxName, ...criteria } = params;
     const mailbox = params.allMailboxes ? undefined : await this.mailboxes.resolve(mailboxName ?? 'INBOX');
     return searchMessages(this.imap, this.mailboxes, this.config, {
@@ -425,6 +429,7 @@ export class MailService {
     const c = this.config;
     const f = this.features;
     const info: Record<string, unknown> = {
+      ...(c.accountName ? { account: c.accountName } : {}),
       email: c.email || null,
       imap: { host: c.imap.host, port: c.imap.port, secure: c.imap.secure, login: this.imap.effectiveUser ?? null, logins_to_try: this.imap.plannedLogins },
       smtp: { host: c.smtp.host, port: c.smtp.port, secure: c.smtp.secure, require_tls: c.smtp.requireTLS, login: c.smtpUser || null },
@@ -467,7 +472,7 @@ export class MailService {
     try {
       const caps = await this.imap.capabilities();
       info['imap'] = { ...(info['imap'] as object), login: this.imap.effectiveUser };
-      info['capabilities'] = Object.fromEntries(['MOVE', 'UIDPLUS', 'SPECIAL-USE', 'IDLE', 'QUOTA'].map((k) => [k, caps.has(k)]));
+      info['capabilities'] = Object.fromEntries(['X-GM-EXT-1', 'MOVE', 'UIDPLUS', 'SPECIAL-USE', 'IDLE', 'QUOTA'].map((k) => [k, caps.has(k)]));
       if (!caps.has('UIDPLUS')) {
         info['capability_note'] =
           'The server lacks UIDPLUS: moves, deletions and draft replacements are refused while other messages in the same folder are marked as deleted (finishing them would purge those too).';
@@ -583,7 +588,7 @@ export class MailService {
     if (isRiskyFileName(file.filename)) {
       result.warning = 'This file type can run code or install software when opened (or contain something that does). Tell the user to open it only if they trust the sender.';
     }
-    const elsewhere = 'The cloud version cannot save files; the user can open it in Apple Mail or at icloud.com/mail, or another connector can be used to store or share it.';
+    const elsewhere = 'The cloud version cannot save files; the user can open it in Gmail, or another connector can be used to store or share it.';
     if (!returnContent) {
       result.note = `Not shown (return_content is false). ${elsewhere}`;
     } else if (file.embedded !== undefined) {
@@ -641,6 +646,25 @@ export class MailService {
     );
   }
 
+  async labelMessages(params: { mailbox: string; uids: number[]; add?: string[] | undefined; remove?: string[] | undefined }, opts: OperationOptions = {}): Promise<LabelResult> {
+    this.assertWritable('Changing labels');
+    const mb = await this.mailboxes.resolve(params.mailbox);
+    const uids = validateUids(params.uids);
+    this.checkSignal(opts.signal, 'changing labels');
+    return this.audited(
+      { tool: 'label_messages', mailbox: mb.path, uids, add: params.add, remove: params.remove },
+      async () => {
+        try {
+          return await labelMessages(this.imap, mb, uids, { add: params.add, remove: params.remove });
+        } finally {
+          // A new label is a new folder, and removing the open folder's label changes its counts.
+          this.mailboxes.invalidate();
+        }
+      },
+      (r) => ({ affected: r.affected, not_found: r.not_found, not_applied: r.not_applied.length }),
+    );
+  }
+
   private async resolveDestination(name: string): Promise<MailboxInfo> {
     try {
       return await this.mailboxes.resolve(name);
@@ -669,6 +693,27 @@ export class MailService {
     this.assertWritable('Archiving');
     const source = await this.mailboxes.resolve(params.mailbox);
     const uids = validateUids(params.uids);
+    if (await this.imap.hasCapability('X-GM-EXT-1')) {
+      // Gmail's Archive removes the Inbox label and nothing else: moving to All Mail would instead
+      // remove the label of the folder the messages were taken from (and keep them in the inbox).
+      const allMail = (await this.mailboxes.resolveSpecial('archive'))?.path ?? '[Gmail]/All Mail';
+      this.checkSignal(opts.signal, 'archiving');
+      return this.audited(
+        { tool: 'archive_messages', mailbox: source.path, uids, destination: allMail },
+        async () => {
+          const r = await labelMessages(this.imap, source, uids, { remove: ['Inbox'] });
+          this.mailboxes.invalidateCounts();
+          const out: MoveResult = { source: source.path, destination: allMail, moved: r.affected, not_found: r.not_found };
+          out.warning =
+            r.not_applied.length > 0
+              ? `${r.not_applied.length} message(s) still have the Inbox label: ${r.not_applied.map((n) => n.uid).join(', ')}.`
+              : 'Archived the Gmail way: the Inbox label was removed. The messages keep their other labels and stay in All Mail' +
+                (source.specialUse === 'inbox' ? ' (their UIDs there differ from the INBOX UIDs; search All Mail to find them).' : `, and in "${source.path}" with the same UIDs.`);
+          return out;
+        },
+        (r) => ({ moved: r.moved, not_found: r.not_found }),
+      );
+    }
     const existingArchive = await this.mailboxes.resolveSpecial('archive');
     if (existingArchive && existingArchive.path === source.path) {
       throw new MailError('INVALID_INPUT', `The messages are already in the archive folder ("${source.path}").`);
@@ -688,11 +733,11 @@ export class MailService {
     const source = await this.mailboxes.resolve(params.mailbox);
     const uids = validateUids(params.uids);
     const trash = await this.mailboxes.resolveSpecial('trash');
-    if (!trash) throw new MailError('NOT_FOUND', `No Trash (Deleted Messages) mailbox was found. Set its name as ${settingName('MAIL_TRASH_MAILBOX')}.`);
+    if (!trash) throw new MailError('NOT_FOUND', `No Trash mailbox ("[Gmail]/Trash") was found. Set its name as ${settingName('MAIL_TRASH_MAILBOX')}.`);
     if (trash.path === source.path) {
       const how = this.features.permanentDelete
         ? 'To remove them for good, use delete_messages_permanently (this cannot be undone).'
-        : `Permanent deletion is disabled on this server (${settingName('MAIL_ALLOW_PERMANENT_DELETE')} is off); iCloud normally empties Deleted Messages after about 30 days.`;
+        : `Permanent deletion is disabled on this server (${settingName('MAIL_ALLOW_PERMANENT_DELETE')} is off); Gmail deletes messages in Trash for good after 30 days.`;
       throw new MailError('INVALID_INPUT', `These messages are already in Trash ("${trash.path}"). ${how}`);
     }
     this.checkSignal(opts.signal, 'moving to Trash');
@@ -714,7 +759,7 @@ export class MailService {
       if (subjects.length === 0) return { mailbox: mb.path, deleted: 0, not_found: uids };
       const decision = await this.confirm(
         {
-          title: 'iCloud Mail: permanently delete?',
+          title: 'Gmail: permanently delete?',
           action: 'Delete',
           message: buildDeleteConfirmationMessage({ mailbox: mb.path, count: subjects.length, subjects: subjects.map((s) => s.subject) }),
         },
@@ -734,7 +779,26 @@ export class MailService {
       }
     }
     this.checkSignal(opts.signal, 'deleting');
-    return this.audited(entry, () => deleteMessagesPermanently(this.imap, this.mailboxes, mb, uids), (r) => ({ deleted: r.deleted, not_found: r.not_found }));
+    return this.audited(entry, () => this.deleteForGood(mb, uids), (r) => ({ deleted: r.deleted, not_found: r.not_found }));
+  }
+
+  /**
+   * On Gmail, expunging a message from INBOX or a label folder only removes that label (with the
+   * default IMAP settings it then stays in All Mail), so a permanent delete first moves the
+   * messages to Trash and expunges them there. Other servers expunge in place.
+   */
+  private async deleteForGood(mb: MailboxInfo, uids: number[]): Promise<DeleteResult> {
+    if (!(await this.imap.hasCapability('X-GM-EXT-1'))) return deleteMessagesPermanently(this.imap, this.mailboxes, mb, uids);
+    const trash = await this.mailboxes.resolveSpecial('trash');
+    if (!trash) throw new MailError('NOT_FOUND', 'No Trash mailbox ("[Gmail]/Trash") was found, and Gmail only deletes messages for good from Trash or Spam.');
+    if (trash.path === mb.path || mb.specialUse === 'junk') return deleteMessagesPermanently(this.imap, this.mailboxes, mb, uids);
+    const moved = await moveMessages(this.imap, this.mailboxes, mb, uids, trash);
+    const inTrash = Object.values(moved.new_uids ?? {});
+    if (moved.moved > 0 && inTrash.length < moved.moved) {
+      throw new MailError('SERVER', `Moved ${moved.moved} message(s) to Trash, but Gmail did not report their new UIDs there, so they were not deleted for good. They are in "${trash.path}" and Gmail deletes them after 30 days.`);
+    }
+    const r = inTrash.length ? await deleteMessagesPermanently(this.imap, this.mailboxes, trash, inTrash) : { mailbox: trash.path, deleted: 0, not_found: [] };
+    return { mailbox: mb.path, deleted: r.deleted, not_found: moved.not_found };
   }
 
   async createMailbox(params: { path: string }, opts: OperationOptions = {}): Promise<{ path: string; created: boolean }> {
@@ -995,7 +1059,7 @@ export class MailService {
       subject: msg.subject || '(no subject)',
       attachments: msg.attachments.map((a) => a.filename),
       body_chars: msg.text.length,
-      note: "The draft was saved and will appear in Apple Mail's Drafts folder (iCloud syncs it).",
+      note: "The draft was saved and appears in Gmail's Drafts on every device.",
     };
     if (inherited) {
       const kept: string[] = [];
@@ -1121,10 +1185,10 @@ export class MailService {
         { readOnly: true },
       );
       const draftFrom = full.addresses.from[0];
-      if (!draftFrom?.address) throw new MailError('INVALID_INPUT', 'The draft has no From address; open it in Apple Mail or save it again with save_draft.');
+      if (!draftFrom?.address) throw new MailError('INVALID_INPUT', 'The draft has no From address; open it in Gmail or save it again with save_draft.');
       const allowed = this.config.allowedFrom.find((a) => a.toLowerCase() === draftFrom.address.toLowerCase());
       if (!allowed) {
-        throw new MailError('FORBIDDEN', `The draft's From address ${draftFrom.address} is not one of the allowed From addresses (${this.config.allowedFrom.join(', ')}); iCloud would refuse it. Change it in Apple Mail or re-save the draft.`);
+        throw new MailError('FORBIDDEN', `The draft's From address ${draftFrom.address} is not one of the allowed From addresses (${this.config.allowedFrom.join(', ')}); Gmail would not send from it. Change it in Gmail or re-save the draft.`);
       }
       const recipients = finalizeRecipients({ to: full.addresses.to, cc: full.addresses.cc, bcc: full.addresses.bcc }, this.config.maxRecipients, { requireTo: true });
       const date = new Date();
@@ -1154,7 +1218,7 @@ export class MailService {
         audit: { draft: draftRef },
         afterSend: async () => {
           const out: Record<string, unknown> = {};
-          // Remove the draft so it is not sent twice from Apple Mail later.
+          // Remove the draft so it is not sent twice from Gmail later.
           try {
             const sentCopy = await findByMessageId(this.imap, (await this.mailboxes.resolveSpecial('sent'))?.path ?? drafts.path, built.messageId).catch(() => []);
             if (sentCopy.length > 0 && full.messageId) {
@@ -1166,7 +1230,7 @@ export class MailService {
             }
           } catch (err) {
             out['draft_removed'] = false;
-            out['draft_note'] = `The email was sent, but the draft could not be removed from Drafts: ${err instanceof MailError ? err.message : redact(errorMessage(err))}. Delete it in Apple Mail so it is not sent again.`;
+            out['draft_note'] = `The email was sent, but the draft could not be removed from Drafts: ${err instanceof MailError ? err.message : redact(errorMessage(err))}. Delete it in Gmail so it is not sent again.`;
           }
           // Mark the message the draft replies to as answered (and read), when it is in INBOX.
           const parent = full.inReplyTo ? (extractMessageIds(full.inReplyTo)[0] ?? full.inReplyTo) : null;

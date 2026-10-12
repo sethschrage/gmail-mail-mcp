@@ -3,7 +3,7 @@
  * - 'local': stdio server started by Claude Desktop (.mcpb extension) or Claude Code on a Mac;
  *   settings live in the extension settings form (or the env of a manual install).
  * - 'cloud': HTTP server on Vercel (src/http); settings are the Vercel project's env vars and the
- *   iCloud login can also arrive in connector headers.
+ *   Gmail login of each account comes from GMAIL_<ACCOUNT>_* variables (see src/http/handler.ts).
  *
  * A process is one or the other for its whole life, so this is a module-level switch set once by
  * the entry point (src/http/vercel.ts calls setRuntime('cloud')).

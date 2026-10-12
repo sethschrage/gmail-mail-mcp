@@ -100,7 +100,7 @@ describe('the .mcpb archive', () => {
     expect(packed.entries).toEqual([...BUNDLE_FILES]);
     expect(await listFiles(unpacked)).toEqual([...BUNDLE_FILES]);
     expect(packed.size).toBeLessThan(5 * 1024 * 1024);
-    expect(JSON.parse(readFileSync(path.join(unpacked, 'package.json'), 'utf8'))).toEqual({ name: 'icloud-mail', version: packed.version, private: true, type: 'module' });
+    expect(JSON.parse(readFileSync(path.join(unpacked, 'package.json'), 'utf8'))).toEqual({ name: 'gmail-mail', version: packed.version, private: true, type: 'module' });
     expect(readFileSync(path.join(unpacked, 'manifest.json'), 'utf8')).toBe(readFileSync(path.join(PROJECT_ROOT, 'manifest.json'), 'utf8'));
     expect(readFileSync(path.join(unpacked, 'icon.png')).equals(readFileSync(path.join(PROJECT_ROOT, 'icon.png')))).toBe(true);
     const server = readFileSync(path.join(unpacked, 'server', 'index.js'), 'utf8');
@@ -122,7 +122,7 @@ describe('the unpacked server, started like Claude Desktop with only the require
   });
 
   it('receives blank optional values, a literal ${HOME} default and one argument per attach folder', () => {
-    expect(env['ICLOUD_IMAP_USER']).toBe('');
+    expect(env['GMAIL_IMAP_USER']).toBe('');
     expect(env['MAIL_FROM_ADDRESS']).toBe('');
     expect(env['MAIL_ATTACHMENT_DIR']).toBe('${HOME}/Downloads/iCloud Mail Attachments');
     expect(args.slice(1)).toEqual([ATTACH_FROM_DIRS_FLAG, '${HOME}/Desktop', '${HOME}/Documents', '${HOME}/Downloads']);
@@ -270,7 +270,7 @@ describe('the unpacked server when the host passes literal ${user_config.*} plac
   });
 
   it('receives the placeholders unexpanded', () => {
-    expect(env['ICLOUD_IMAP_USER']).toBe('${user_config.imap_username}');
+    expect(env['GMAIL_IMAP_USER']).toBe('${user_config.imap_username}');
     expect(env['MAIL_ALLOW_SEND']).toBe('${user_config.allow_send}');
     expect(env['MAIL_MAX_BODY_CHARS']).toBe('${user_config.max_body_chars}');
     expect(env['MAIL_ATTACHMENT_DIR']).toBe('${user_config.attachment_dir}');

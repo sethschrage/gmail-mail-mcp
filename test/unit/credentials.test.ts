@@ -21,7 +21,7 @@ beforeAll(() => {
 printf '%s\\n' "$@" > "${argsLog}"
 if [ "$1" != "find-generic-password" ] || [ "$2" != "-s" ] || [ "$4" != "-a" ] || [ "$6" != "-w" ]; then exit 2; fi
 case "$3" in
-  icloud-mail-mcp) printf 'abcd-efgh-ijkl-mnop\\n'; exit 0 ;;
+  gmail-mail-mcp) printf 'abcd-efgh-ijkl-mnop\\n'; exit 0 ;;
   empty) printf '\\n'; exit 0 ;;
   slow) sleep 5; exit 0 ;;
   broken) echo "security: SecKeychainSearchCopyNext: failure" >&2; exit 1 ;;
@@ -37,7 +37,7 @@ afterAll(() => {
   clearSecrets();
 });
 
-const base = { email: 'me@icloud.com', password: undefined, keychainService: 'icloud-mail-mcp', imapUser: undefined, smtpUser: 'me@icloud.com' };
+const base = { email: 'me@icloud.com', password: undefined, keychainService: 'gmail-mail-mcp', imapUser: undefined, smtpUser: 'me@icloud.com' };
 
 async function mailError(p: Promise<unknown>): Promise<MailError> {
   const e = await p.then(
@@ -51,20 +51,20 @@ async function mailError(p: Promise<unknown>): Promise<MailError> {
 }
 
 describe('password resolution', () => {
-  it('prefers ICLOUD_APP_PASSWORD and registers it for redaction', async () => {
+  it('prefers GMAIL_APP_PASSWORD and registers it for redaction', async () => {
     const p = new CredentialProvider({ ...base, password: 'env-pass-1234' }, { platform: 'linux', securityPath: '/nonexistent' });
     expect(await p.getPassword()).toEqual({ password: 'env-pass-1234', source: 'env' });
     expect(redact('login failed for env-pass-1234')).toBe('login failed for [REDACTED]');
-    expect(p.describeSource()).toMatch(/ICLOUD_APP_PASSWORD/);
+    expect(p.describeSource()).toMatch(/GMAIL_APP_PASSWORD/);
   });
 
   it('reads the macOS Keychain with execFile argv (no shell) and trims the trailing newline', async () => {
     const p = new CredentialProvider(base, { platform: 'darwin', securityPath: fakeSecurity });
     expect(await p.getPassword()).toEqual({ password: 'abcd-efgh-ijkl-mnop', source: 'keychain' });
     const { readFileSync } = await import('node:fs');
-    expect(readFileSync(argsLog, 'utf8').trim().split('\n')).toEqual(['find-generic-password', '-s', 'icloud-mail-mcp', '-a', 'me@icloud.com', '-w']);
+    expect(readFileSync(argsLog, 'utf8').trim().split('\n')).toEqual(['find-generic-password', '-s', 'gmail-mail-mcp', '-a', 'me@icloud.com', '-w']);
     expect(redact('pw abcd-efgh-ijkl-mnop')).toBe('pw [REDACTED]');
-    expect(p.describeSource()).toMatch(/Keychain \(service "icloud-mail-mcp", account "me@icloud.com"\)/);
+    expect(p.describeSource()).toMatch(/Keychain \(service "gmail-mail-mcp", account "me@icloud.com"\)/);
   });
 
   it('caches the result and can be invalidated', async () => {
@@ -115,6 +115,6 @@ describe('password resolution', () => {
 
   it('needs an email for the Keychain account', async () => {
     const err = await mailError(new CredentialProvider({ ...base, email: '' }, { platform: 'darwin', securityPath: fakeSecurity }).getPassword());
-    expect(err.message).toMatch(/ICLOUD_EMAIL is not set/);
+    expect(err.message).toMatch(/GMAIL_EMAIL is not set/);
   });
 });

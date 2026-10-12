@@ -109,7 +109,7 @@ export class UpstashQuota implements SharedQuota {
       { name: 'rcpt_h', windowMs: HOUR, max: opts.maxRecipientsPerHour, env: 'MAIL_MAX_RECIPIENTS_PER_HOUR', what: 'recipients per hour' },
       { name: 'rcpt_d', windowMs: DAY, max: opts.maxRecipientsPerDay, env: 'MAIL_MAX_RECIPIENTS_PER_DAY', what: 'recipients per day' },
     ];
-    this.prefix = `icloud-mail:v1:${accountKey(opts.email)}`;
+    this.prefix = `gmail-mail:v1:${accountKey(opts.email)}`;
     this.fetchFn = opts.fetch ?? (globalThis.fetch as unknown as FetchFn);
     this.now = opts.now ?? Date.now;
     this.timeoutMs = opts.timeoutMs ?? 5000;
@@ -182,7 +182,7 @@ export class UpstashQuota implements SharedQuota {
           'RATE_LIMIT',
           m.name === 'sends_h'
             ? `Send limit reached: at most ${m.max} emails per hour (${m.env}). Try again later, or save a draft instead.`
-            : `Recipient limit reached: this email has ${recipients} recipient(s), but only ${remaining} more are allowed right now (at most ${m.max} ${m.what}; ${m.env}; iCloud itself allows about 1,000 recipients a day). Nothing was sent; try later, or save a draft instead.`,
+            : `Recipient limit reached: this email has ${recipients} recipient(s), but only ${remaining} more are allowed right now (at most ${m.max} ${m.what}; ${m.env}; Gmail itself allows about 500 recipients a day). Nothing was sent; try later, or save a draft instead.`,
         );
       }
     }
@@ -214,7 +214,7 @@ export class UpstashQuota implements SharedQuota {
   }
 }
 
-/** The shared quota for a configuration (one per MailService, i.e. per iCloud account). */
+/** The shared quota for a configuration (one per MailService, i.e. per Gmail account). */
 export function createSharedQuota(config: Config, deps: { fetch?: FetchFn; now?: () => number; logger?: Logger } = {}): SharedQuota {
   const store = config.quotaStore;
   switch (store.kind) {

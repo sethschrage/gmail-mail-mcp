@@ -31,7 +31,7 @@ export async function withDeadline<T>(fn: (signal: AbortSignal) => Promise<T>, o
     timer = setTimeout(() => {
       const err = new MailError(
         'TIMEOUT',
-        `${what} did not finish within ${Math.round(options.timeoutMs / 1000)} s (MAIL_OPERATION_TIMEOUT_SECONDS). iCloud may be slow right now. ` +
+        `${what} did not finish within ${Math.round(options.timeoutMs / 1000)} s (MAIL_OPERATION_TIMEOUT_SECONDS). Gmail may be slow right now. ` +
           'If this was a change (send, move, delete), it may still have completed: check before retrying.',
       );
       reject(err);

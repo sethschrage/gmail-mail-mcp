@@ -33,7 +33,7 @@ export function registerDraftTools(server: McpServer, rt: ToolRuntime): void {
     {
       title,
       description: [
-        "Save an email as a draft in the iCloud Drafts folder WITHOUT sending it. It appears in Apple Mail's Drafts, where the user can review, edit and send it. Prefer this over the send tools whenever the user has not explicitly asked to send.",
+        "Save an email as a draft in Gmail's Drafts WITHOUT sending it. It appears in Drafts in Gmail on every device, where the user can review, edit and send it. Prefer this over the send tools whenever the user has not explicitly asked to send.",
         'For a reply draft pass reply_to {mailbox, uid, reply_all}: recipients, "Re:" subject, quoted original and threading headers are filled in (to/cc add extra recipients).',
         'For a forward draft pass forward_of {mailbox, uid, include_attachments}: "Fwd:" subject, the forwarded message and by default its attachments are included; give the recipients in to.',
         'To revise a draft saved earlier, pass its uid in Drafts as replace_draft_uid: from, to, cc, bcc, subject, threading headers and attachments you leave out are kept from the old draft (pass a field, even an empty list, to change it; keep_attachments=false drops the old attachments); body replaces the old body entirely. The new version is saved first; the old one is then deleted if Claude saved it in this session, otherwise moved to Trash (recoverable).',

@@ -175,7 +175,7 @@ describe('SMTP error mapping by command and enhanced status', () => {
 
 describe('Sender pipeline (fake transport)', () => {
   const { config } = loadConfig(
-    { ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: path.join(dir, 'audit.jsonl'), MAIL_SAVE_SENT_COPY: 'false', MAIL_CONFIRM_DIALOG: 'true' },
+    { GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: path.join(dir, 'audit.jsonl'), MAIL_SAVE_SENT_COPY: 'false', MAIL_CONFIRM_DIALOG: 'true' },
     { platform: 'linux', home: dir },
   );
   const logger = createLogger({ level: 'error', sink: () => undefined });
@@ -281,7 +281,7 @@ describe('Sender: dialog contents, 8BITMIME and post-send work', () => {
   });
 
   function build(env: Record<string, string>, deps: { imap?: unknown; registry?: unknown; confirm?: (r: { message: string }) => void; transport: TransportFactory }) {
-    const { config } = loadConfig({ ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: 'off', ...env }, { platform: 'linux', home: dir });
+    const { config } = loadConfig({ GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: 'off', ...env }, { platform: 'linux', home: dir });
     return new Sender({
       config,
       credentials: new CredentialProvider(config, { platform: 'linux' }),

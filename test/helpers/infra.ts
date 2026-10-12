@@ -96,7 +96,7 @@ export interface TestDirs {
 }
 
 export function makeTestDirs(): TestDirs {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'icloud-mail-mcp-test-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'gmail-mail-mcp-test-'));
   const attachFrom = path.join(root, 'Documents');
   mkdirSync(attachFrom, { recursive: true });
   return { root, attachmentDir: path.join(root, 'Attachments'), attachFrom, auditLog: path.join(root, 'audit.jsonl') };
@@ -109,8 +109,8 @@ export function cleanupDirs(dirs: TestDirs): void {
 /** Environment for the main test-infra instance: IMAPS 1993 + SMTP 1587 STARTTLS with the test CA. */
 export function testEnv(dirs: TestDirs, overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
-    ICLOUD_EMAIL: ACCOUNT,
-    ICLOUD_APP_PASSWORD: PASSWORD,
+    GMAIL_EMAIL: ACCOUNT,
+    GMAIL_APP_PASSWORD: PASSWORD,
     IMAP_HOST: '127.0.0.1',
     IMAP_PORT: '1993',
     IMAP_SECURE: 'true',

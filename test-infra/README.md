@@ -1,7 +1,7 @@
 # Local iCloud-like mail server for integration tests
 
 A self-contained **Dovecot IMAP** server and a **Node SMTP sink**. Together they stand in for
-iCloud Mail (`imap.mail.me.com` / `smtp.mail.me.com`) so the icloud-mail-mcp server can be tested
+iCloud Mail (`imap.mail.me.com` / `smtp.mail.me.com`) so the gmail-mail-mcp server can be tested
 end to end without touching a real account. Nothing here relays mail anywhere.
 
 - Dovecot 2.3 runs from its own config (`dovecot/dovecot.conf`, rendered from `dovecot.conf.tmpl`).

@@ -1,5 +1,5 @@
 {
-  "name": "icloud-mail-mcp",
+  "name": "gmail-mail-mcp",
   "version": "0.1.0",
   "description": "Local MCP server that lets Claude Desktop on macOS read, search, organize, draft and send iCloud Mail over IMAP/SMTP",
   "author": "Seth",

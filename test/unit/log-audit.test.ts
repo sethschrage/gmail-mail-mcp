@@ -20,7 +20,7 @@ describe('logger', () => {
     log.warn('w', { a: 1, big: 2n });
     log.error('e\nmultiline');
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatch(/\[icloud-mail-mcp\] WARN w \{"a":1,"big":"2"\}\n$/);
+    expect(lines[0]).toMatch(/\[gmail-mail-mcp\] WARN w \{"a":1,"big":"2"\}\n$/);
     expect(lines[1]).toMatch(/ERROR e multiline\n$/);
     log.setLevel('debug');
     log.debug('now visible');

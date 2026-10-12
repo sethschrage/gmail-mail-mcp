@@ -42,7 +42,7 @@ export async function buildDev(outdir = DEV_OUTDIR) {
   const outfile = path.join(outdir, 'index.js');
   const result = await build(serverBundleOptions({ outfile, minify: false }));
   if (result.errors.length) throw new Error(`esbuild failed with ${result.errors.length} error(s)`);
-  await writeFile(path.join(outdir, 'package.json'), `${JSON.stringify({ name: 'icloud-mail-dev', private: true, type: 'module' }, null, 2)}\n`);
+  await writeFile(path.join(outdir, 'package.json'), `${JSON.stringify({ name: 'gmail-mail-dev', private: true, type: 'module' }, null, 2)}\n`);
   return outfile;
 }
 

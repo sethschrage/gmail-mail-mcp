@@ -113,12 +113,13 @@ export function renderMessageView(view: MessageView): string {
   const f = m.flags;
   const flagWords = [
     f.unread ? 'unread' : 'read',
-    f.flagged ? `flagged${f.flag_color ? ` (${f.flag_color})` : ''}` : null,
+    f.flagged ? 'starred' : null,
     f.answered ? 'answered' : null,
     f.forwarded ? 'forwarded' : null,
     f.draft ? 'draft' : null,
   ].filter((x): x is string => !!x);
   push('Flags', flagWords.join(', '));
+  if (m.labels) push('Labels', m.labels.length ? m.labels.join(', ') : '(none: archived)');
   push('Size', formatSize(m.size));
   push('List-Id', m.listId ? sanitizeInline(m.listId, 300) : null);
   push('List-Unsubscribe', m.listUnsubscribe ? sanitizeInline(m.listUnsubscribe, 500) : null);

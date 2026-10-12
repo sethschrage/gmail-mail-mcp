@@ -254,7 +254,7 @@ export interface QuarantineOptions {
 export async function markQuarantined(filePath: string, options: QuarantineOptions): Promise<string | undefined> {
   if ((options.platform ?? process.platform) !== 'darwin') return undefined;
   const seconds = Math.floor((options.now ?? Date.now)() / 1000).toString(16);
-  const value = `0081;${seconds};icloud-mail-mcp;${randomUUID().toUpperCase()}`;
+  const value = `0081;${seconds};gmail-mail-mcp;${randomUUID().toUpperCase()}`;
   const r = await options.exec(options.xattrPath ?? '/usr/bin/xattr', ['-w', 'com.apple.quarantine', value, filePath], { timeoutMs: 10_000 });
   if (r.error || r.code !== 0) {
     return 'The file could not be marked as downloaded from the internet (macOS quarantine), so macOS will not warn before it is opened; treat it with care.';

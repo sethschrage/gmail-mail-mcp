@@ -107,7 +107,7 @@ function safeStringify(fields: Record<string, unknown>): string {
 export function createLogger(options: { level?: LogLevel; sink?: LogSink; name?: string } = {}): Logger {
   let level: LogLevel = options.level ?? 'warn';
   const sink = options.sink ?? stderrSink;
-  const name = options.name ?? 'icloud-mail-mcp';
+  const name = options.name ?? 'gmail-mail-mcp';
 
   const write = (lvl: LogLevel, msg: string, fields?: Record<string, unknown>): void => {
     if (LEVEL_RANK[lvl] > LEVEL_RANK[level]) return;

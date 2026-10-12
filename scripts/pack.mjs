@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Package the extension (SPEC §9): run the build (scripts/build.mjs), validate the staged
- * manifest with `mcpb validate`, then `mcpb pack build/mcpb dist/icloud-mail-<version>.mcpb`.
+ * manifest with `mcpb validate`, then `mcpb pack build/mcpb dist/gmail-mail-<version>.mcpb`.
  * Afterwards the archive's entries are read back and must be exactly BUNDLE_FILES (no sources,
  * tests or node_modules), and the file size is printed.
  *
@@ -62,13 +62,13 @@ export function formatBytes(n) {
 }
 
 /**
- * Build, validate and pack. `outFile` defaults to dist/icloud-mail-<version>.mcpb.
+ * Build, validate and pack. `outFile` defaults to dist/gmail-mail-<version>.mcpb.
  * Resolves to { file, size, version, entries }.
  */
 export async function packMcpb({ stageDir = MCPB_STAGE_DIR, outFile, typecheck = true, log = (line) => process.stderr.write(`${line}\n`) } = {}) {
   const say = log ?? (() => undefined);
   const { version } = await buildMcpb({ outDir: stageDir, typecheck, log });
-  const file = outFile ?? path.join(DIST_DIR, `icloud-mail-${version}.mcpb`);
+  const file = outFile ?? path.join(DIST_DIR, `gmail-mail-${version}.mcpb`);
 
   say(`validate: mcpb validate ${path.relative(PROJECT_ROOT, path.join(stageDir, 'manifest.json'))}`);
   say(await runMcpb(['validate', path.join(stageDir, 'manifest.json')]));

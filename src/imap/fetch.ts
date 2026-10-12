@@ -14,6 +14,7 @@ import { attachmentSaveError, createUniqueFile, fallbackAttachmentName, sanitize
 import { sanitizeInline } from '../safety/untrusted.js';
 import { displayName, formatAddressForDisplay, type EmailAddress } from '../smtp/address.js';
 import { flagState, type FlagColor, type FlagState } from './flags.js';
+import { displayLabels } from './labels.js';
 import {
   collectAttachments,
   decodePartialBody,
@@ -30,7 +31,7 @@ import { toSequenceSet } from './uids.js';
 
 /**
  * Search/thread summary (SPEC §5). To keep results small, `cc` appears only when non-empty,
- * `flagged`, `flag_color`, `answered` and `draft` only when set, and at most SUMMARY_MAX_ADDRESSES
+ * `flagged`, `flag_color`, `answered`, `draft` and `labels` only when set, and at most SUMMARY_MAX_ADDRESSES
  * To/Cc addresses are listed (`to_count`/`cc_count` then give the full number; get_message shows all).
  */
 export interface MessageSummary {
@@ -48,6 +49,8 @@ export interface MessageSummary {
   flag_color?: FlagColor;
   answered?: true;
   draft?: true;
+  /** Gmail labels (system labels such as Inbox and Important first). */
+  labels?: string[];
   has_attachments: boolean;
   size: string;
   snippet?: string;
@@ -65,7 +68,8 @@ export interface SummaryRecord {
   flags: Set<string>;
 }
 
-export const SUMMARY_QUERY = { uid: true, envelope: true, flags: true, bodyStructure: true, internalDate: true, size: true } as const;
+// `labels` is only requested from servers with X-GM-EXT-1 (imapflow checks the capability).
+export const SUMMARY_QUERY = { uid: true, envelope: true, flags: true, bodyStructure: true, internalDate: true, size: true, labels: true } as const;
 
 export const SNIPPET_MAX_BYTES_PLAIN = 2048;
 /** HTML parts often start with a long <head>/<style>; fetch a little more so the snippet has text. */
@@ -93,6 +97,11 @@ export function messageTime(msg: Pick<FetchMessageObject, 'envelope' | 'internal
   return d ? d.getTime() : 0;
 }
 
+/** Display labels (sanitised: label names are user- and sender-influenced text), or null without X-GM-EXT-1. */
+export function labelsOf(msg: Pick<FetchMessageObject, 'labels'>): string[] | null {
+  return msg.labels ? displayLabels(msg.labels).map((l) => sanitizeInline(l, 200)) : null;
+}
+
 export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZone: string): SummaryRecord {
   const time = messageTime(msg);
   const flags = msg.flags ?? new Set<string>();
@@ -118,6 +127,8 @@ export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZo
   if (state.flag_color) summary.flag_color = state.flag_color;
   if (state.answered) summary.answered = true;
   if (state.draft) summary.draft = true;
+  const labels = labelsOf(msg);
+  if (labels?.length) summary.labels = labels;
   // Keep a stable key order (snippet last), as before.
   const ordered: MessageSummary = {
     mailbox: summary.mailbox,
@@ -134,6 +145,7 @@ export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZo
     ...(summary.flag_color ? { flag_color: summary.flag_color } : {}),
     ...(summary.answered ? { answered: true as const } : {}),
     ...(summary.draft ? { draft: true as const } : {}),
+    ...(summary.labels ? { labels: summary.labels } : {}),
     has_attachments: summary.has_attachments,
     size: summary.size,
   };
@@ -264,6 +276,8 @@ export interface FullMessage {
   addresses: MessageAddresses;
   flags: FlagState;
   rawFlags: string[];
+  /** Gmail labels, or null when the server has none (no X-GM-EXT-1). */
+  labels: string[] | null;
   size: number | null;
   listId: string | null;
   listUnsubscribe: string | null;
@@ -324,7 +338,7 @@ export async function fetchFullMessage(
 ): Promise<FullMessage> {
   const msg = await client.fetchOne(
     String(uid),
-    { uid: true, envelope: true, flags: true, bodyStructure: true, internalDate: true, size: true, headers: [...MESSAGE_HEADER_FIELDS] },
+    { uid: true, envelope: true, flags: true, bodyStructure: true, internalDate: true, size: true, labels: true, headers: [...MESSAGE_HEADER_FIELDS] },
     { uid: true },
   );
   if (!msg || msg.uid !== uid) throw messageNotFound(mailbox, uid);
@@ -376,6 +390,7 @@ export async function fetchFullMessage(
     },
     flags: flagState(msg.flags),
     rawFlags: [...(msg.flags ?? [])],
+    labels: labelsOf(msg),
     size: typeof msg.size === 'number' ? msg.size : null,
     listId: headers.get('list-id')?.[0] ?? null,
     listUnsubscribe: headers.get('list-unsubscribe')?.[0] ?? null,
@@ -608,7 +623,7 @@ export async function fetchAttachmentBuffers(client: ImapFlow, mailbox: string, 
   if (estimated > maxTotalBytes) {
     throw new MailError(
       'TOO_LARGE',
-      `The original's attachments total about ${formatSize(estimated)}, above the ${formatSize(maxTotalBytes)} that can be sent (iCloud's 20 MB message limit after encoding). Forward without attachments (include_attachments: false) or download and share them another way.`,
+      `The original's attachments total about ${formatSize(estimated)}, above the ${formatSize(maxTotalBytes)} that can be sent (Gmail's 25 MB message limit after encoding). Forward without attachments (include_attachments: false) or download and share them another way.`,
     );
   }
   const out: AttachmentBuffer[] = [];

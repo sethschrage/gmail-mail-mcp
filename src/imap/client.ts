@@ -1,81 +1,52 @@
 /**
- * IMAP connection manager (SPEC §2.1, §2.6, §2.7, §3 ICLOUD_IMAP_USER).
+ * IMAP connection manager (SPEC §2.1, §2.6, §2.7, §3 GMAIL_IMAP_USER).
  *
  * - One ImapFlow instance at a time, created lazily; a single in-flight connect promise is shared.
  * - ImapFlow instances cannot reconnect: on 'close' (or when `!usable`) the instance is dropped and
  *   a new one is created for the next operation.
  * - Every selected-mailbox operation runs inside `getMailboxLock` via `withMailbox()`.
  * - The connection is logged out after 5 minutes without activity.
- * - Login: ICLOUD_IMAP_USER if set; otherwise the full email, and on an authentication failure for
- *   icloud.com/me.com/mac.com addresses one retry with the local part. The working login is kept
+ * - Login: GMAIL_IMAP_USER if set; otherwise the full email address. The working login is kept
  *   for the process lifetime.
  * - imapflow never gets its default (stdout) logger.
  * - A tool call that is abandoned (deadline or client cancellation, see context.ts) while one of
  *   its IMAP commands is still pending closes that connection: imapflow then rejects the pending
  *   command and drops its mailbox lock, and the next call reconnects instead of waiting minutes
  *   behind a command that will never finish (a half-open socket after a network change, or a
- *   SEARCH iCloud never answers). A mailbox lock wait that times out is treated the same way.
+ *   SEARCH the server never answers). A mailbox lock wait that times out is treated the same way.
  * - Without implicit TLS (IMAP_SECURE=false) STARTTLS is required, so a network attacker cannot
- *   strip it and read the app-specific password; IMAP_ALLOW_PLAINTEXT=true (tests only) relaxes it.
+ *   strip it and read the app password; IMAP_ALLOW_PLAINTEXT=true (tests only) relaxes it.
  */
 import { readFileSync } from 'node:fs';
 import tls from 'node:tls';
 import { ImapFlow, type ImapFlowOptions, type MailboxObject } from 'imapflow';
-import { isGmailHost, type Config } from '../config.js';
+import type { Config } from '../config.js';
 import { currentContext } from '../context.js';
 import { passwordHelp, type CredentialProvider } from '../credentials.js';
 import { getRuntime } from '../runtime.js';
 import { MailError, errorMessage } from '../errors.js';
 import { imapflowLogger, log as defaultLogger, redact, type Logger } from '../log.js';
-import { domainOf, localPartOf } from '../smtp/address.js';
 import { VERSION } from '../version.js';
 
-export const ICLOUD_DOMAINS = ['icloud.com', 'me.com', 'mac.com'] as const;
 export const IDLE_CLOSE_MS = 5 * 60_000;
 
-/** Logins to try, in order (SPEC §3 ICLOUD_IMAP_USER). */
+/** Logins to try, in order (SPEC §3 GMAIL_IMAP_USER): the override, else the full address. */
 export function imapLoginCandidates(email: string, override: string | undefined): string[] {
   if (override) return [override];
-  if (!email) return [];
-  const candidates = [email];
-  if ((ICLOUD_DOMAINS as readonly string[]).includes(domainOf(email))) {
-    const local = localPartOf(email);
-    if (local && local !== email) candidates.push(local);
-  }
-  return candidates;
+  return email ? [email] : [];
 }
 
 export function authFailureMessage(service: 'IMAP' | 'SMTP', host: string, users: readonly string[], serverSaid?: string): string {
   const who = users.length ? users.map((u) => `"${u}"`).join(' and ') : 'the configured account';
-  if (isGmailHost(host)) {
-    return (
-      `Gmail ${service} (${host}) rejected the login for ${who}${serverSaid ? ` (server said: ${serverSaid})` : ''}. Likely causes: ` +
-      '(1) the regular Google Account password was used instead of an app password; ' +
-      '(2) the app password was revoked, which happens automatically when the Google Account password is changed, so create a new one; ' +
-      '(3) the login must be the full Gmail or Google Workspace address; ' +
-      '(4) app passwords require 2-Step Verification on the Google Account, and a Workspace admin can turn them off. ' +
-      'Create one at https://myaccount.google.com/apppasswords and store it as the password for this account.'
-    );
-  }
   const cloud = getRuntime() === 'cloud';
-  const customDomain = cloud
-    ? 'custom-domain users: log in with your primary @icloud.com address (X-ICloud-Email header or ICLOUD_EMAIL) and set your custom address as MAIL_FROM_ADDRESS'
-    : 'custom-domain users: enter your primary @icloud.com address as "iCloud email address" in the extension settings and your custom address as "From address (optional)" (manual setups: ICLOUD_EMAIL / MAIL_FROM_ADDRESS)';
-  const loginHint =
-    service === 'IMAP'
-      ? `(3) the login must be your iCloud Mail address (or the part before "@"), not an Apple Account sign-in email from another provider such as Gmail; ${customDomain}; a different IMAP login can also be set as ${cloud ? 'ICLOUD_IMAP_USER' : '"IMAP login (optional)" (ICLOUD_IMAP_USER)'};`
-      : `(3) SMTP needs your full iCloud Mail address as the login; ${customDomain}; ${cloud ? 'ICLOUD_SMTP_USER can also be set' : 'a manual setup can also set ICLOUD_SMTP_USER'};`;
-  const nonIcloud = users.find((u) => u.includes('@') && !(ICLOUD_DOMAINS as readonly string[]).includes(domainOf(u)));
-  const appleIdHint = nonIcloud
-    ? ` Note: "${nonIcloud}" is not an @icloud.com, @me.com or @mac.com address. Your Apple Account email is not necessarily your iCloud Mail address: use your @icloud.com address.`
-    : '';
+  const imapOff = service === 'IMAP' ? '(5) IMAP access is turned off: a Google Workspace admin can disable it for the organisation (Admin console > Apps > Google Workspace > Gmail > End User Access); ' : '';
   return (
-    `iCloud ${service} (${host}) rejected the login for ${who}${serverSaid ? ` (server said: ${serverSaid})` : ''}. Likely causes: ` +
-    '(1) your regular Apple Account password was used instead of an app-specific password; ' +
-    '(2) the app-specific password was revoked, which happens automatically when the Apple Account password is changed, so create a new one; ' +
-    `${loginHint} ` +
-    '(4) app-specific passwords require two-factor authentication on the Apple Account.' +
-    `${appleIdHint} ` +
+    `Gmail ${service} (${host}) rejected the login for ${who}${serverSaid ? ` (server said: ${serverSaid})` : ''}. Likely causes: ` +
+    '(1) the regular Google Account password was used instead of an app password; ' +
+    '(2) the app password was revoked, which happens automatically when the Google Account password is changed, so create a new one; ' +
+    `(3) the login must be the full Gmail or Google Workspace address${cloud ? '' : ' ("Gmail address" in the extension settings)'}; ` +
+    '(4) app passwords need 2-Step Verification on the Google Account, and a Workspace admin can turn app passwords off (then this connector cannot be used for that account); ' +
+    imapOff +
     passwordHelp()
   );
 }
@@ -189,7 +160,7 @@ export function mapImapError(err: unknown, ctx: { host: string; port: number; us
     const said = serverTextOf(err);
     return new MailError(
       'CONNECTION',
-      `iCloud IMAP (${where}) refused the login for now${said ? ` (server said: ${said})` : ''}. This is usually temporary, for example too many open connections from Apple Mail on your Mac, iPhone and iPad; your password was not necessarily wrong. Try again in a few minutes.`,
+      `Gmail IMAP (${where}) refused the login for now${said ? ` (server said: ${said})` : ''}. This is usually temporary, for example too many simultaneous IMAP connections to this account (Gmail allows 15) or Gmail's bandwidth limit; your password was not necessarily wrong. Try again in a few minutes.`,
       { cause: err },
     );
   }
@@ -205,7 +176,7 @@ export function mapImapError(err: unknown, ctx: { host: string; port: number; us
   }
   if (code === 'ETHROTTLE') {
     const secs = typeof e.throttleReset === 'number' ? Math.ceil(e.throttleReset / 1000) : undefined;
-    return new MailError('CONNECTION', `iCloud is throttling IMAP requests${secs ? `; try again in about ${secs} s` : '; try again in a minute'}.`, { cause: err });
+    return new MailError('CONNECTION', `Gmail is throttling IMAP requests${secs ? `; try again in about ${secs} s` : '; try again in a minute'}.`, { cause: err });
   }
   if (code === 'LockTimeout') {
     return new MailError('CONNECTION', 'Timed out waiting for another mail operation on this connection to finish; the connection was reset. Try again.', { cause: err });
@@ -213,7 +184,7 @@ export function mapImapError(err: unknown, ctx: { host: string; port: number; us
   if (code && CONNECTION_ERROR_CODES.has(code)) {
     return new MailError(
       'CONNECTION',
-      `Could not talk to the IMAP server ${where} (${code}). Check the Mac's internet connection; iCloud may also be temporarily unavailable. The next request will reconnect.`,
+      `Could not talk to the IMAP server ${where} (${code}). Check the internet connection; Gmail may also be temporarily unavailable. The next request will reconnect.`,
       { cause: err },
     );
   }
@@ -326,7 +297,7 @@ export class ImapManager {
       auth: { user, pass },
       logger: imapflowLogger(this.logger),
       emitLogs: false,
-      clientInfo: { name: 'icloud-mail-mcp', version: VERSION, vendor: false, 'support-url': false },
+      clientInfo: { name: 'gmail-mail-mcp', version: VERSION, vendor: false, 'support-url': false },
       disableAutoIdle: true,
       connectionTimeout: 30_000,
       greetingTimeout: 16_000,
@@ -356,7 +327,7 @@ export class ImapManager {
 
   private async connect(): Promise<ImapFlow> {
     if (!this.config.email && !this.config.imapUser) {
-      throw new MailError('CONFIG', 'ICLOUD_EMAIL is not set, so there is no IMAP login to use.');
+      throw new MailError('CONFIG', 'GMAIL_EMAIL is not set, so there is no IMAP login to use.');
     }
     const { password } = await this.opts.credentials.getPassword();
     const candidates = this.plannedLogins;

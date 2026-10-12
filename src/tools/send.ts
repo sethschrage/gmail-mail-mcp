@@ -35,7 +35,7 @@ export const SEND_TOOL_NAMES = ['send_email', 'reply_to_message', 'forward_messa
 /** The mandatory warning at the start of every send tool description (SPEC §6.6). */
 function sendWarning(what: string, askedTo: string, draftAlternative: string): string {
   return (
-    `SENDS A REAL ${what} IMMEDIATELY from the user's iCloud account; it cannot be recalled. ` +
+    `SENDS A REAL ${what} IMMEDIATELY from the user's Gmail account; it cannot be recalled. ` +
     `Only call this when the user has explicitly asked to ${askedTo} (not merely to write or draft it), and confirm the recipients and content with the user first unless they gave them exactly. ` +
     `If unsure, use ${draftAlternative} instead.`
   );
@@ -236,8 +236,8 @@ export function registerSendTools(server: McpServer, rt: ToolRuntime): void {
     {
       title: draftTitle,
       description: [
-        "SENDS A REAL EMAIL IMMEDIATELY from the user's iCloud account; it cannot be recalled. Only call this when the user has explicitly asked to send this draft, and make sure it is the right draft (recipients, subject, content). If unsure, leave it in Drafts: the user can send it from Apple Mail.",
-        'Sends a draft from the Drafts folder exactly as it is saved there, including any edits the user made in Apple Mail, with its recipients, subject, attachments and threading headers. Use it after save_draft when the user says the draft can go out, instead of recomposing the message.',
+        "SENDS A REAL EMAIL IMMEDIATELY from the user's Gmail account; it cannot be recalled. Only call this when the user has explicitly asked to send this draft, and make sure it is the right draft (recipients, subject, content). If unsure, leave it in Drafts: the user can send it from Gmail.",
+        'Sends a draft from the Drafts folder exactly as it is saved there, including any edits the user made in Gmail, with its recipients, subject, attachments and threading headers. Use it after save_draft when the user says the draft can go out, instead of recomposing the message.',
         'Take uid from save_draft\'s result or from search_messages on the Drafts mailbox. Bcc recipients are sent but hidden; the draft is then removed from Drafts (deleted once the Sent copy is saved, otherwise moved to Trash).',
         sendFooter(rt),
       ].join(' '),

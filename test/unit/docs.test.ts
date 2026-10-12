@@ -43,11 +43,11 @@ describe('README.md', () => {
     expect(readme).toContain('Sign-In and Security');
     expect(readme).toContain('App-Specific Passwords');
     expect(readme).toContain('Settings → Extensions → Advanced settings → Install Extension…');
-    expect(readme).toContain('security add-generic-password -s icloud-mail-mcp');
+    expect(readme).toContain('security add-generic-password -s gmail-mail-mcp');
     expect(readme).toContain('command -v node');
     expect(readme).toContain('claude mcp add');
     expect(readme).toContain('~/Library/Logs/Claude/mcp*.log');
-    expect(readme).toContain('~/Library/Logs/icloud-mail-mcp/audit.jsonl');
+    expect(readme).toContain('~/Library/Logs/gmail-mail-mcp/audit.jsonl');
     expect(readme).toContain('From address is not one of your addresses');
   });
 });
@@ -80,7 +80,7 @@ describe('truthful user-facing wording', () => {
     expect(readme).toContain('## Updating and removing');
     expect(readme).toMatch(/Revoke the app-specific password/);
     expect(readme).toMatch(/iCloud Mail turned on/);
-    expect(readme).toMatch(/exactly the address you put in `ICLOUD_EMAIL`/);
+    expect(readme).toMatch(/exactly the address you put in `GMAIL_EMAIL`/);
     expect(readme).toMatch(/Erase deleted messages/);
     expect(readme).not.toMatch(/get them back from Trash for about 30 days/);
     expect(readme).toMatch(/If you remove every folder, the defaults are used again/);

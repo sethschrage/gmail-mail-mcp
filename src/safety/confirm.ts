@@ -41,7 +41,7 @@ const NAME_MAX = 40;
 /** Title of the manifest setting (manifest.json user_config.confirm_dialog.title). */
 export const CONFIRM_SETTING_TITLE = 'Confirm on my Mac before sending or permanently deleting';
 
-export const CONFIRM_DISABLE_HINT = `To turn the dialog off, switch off "${CONFIRM_SETTING_TITLE}" in Settings → Extensions → iCloud Mail (MAIL_CONFIRM_DIALOG=false in a manual setup).`;
+export const CONFIRM_DISABLE_HINT = `To turn the dialog off, switch off "${CONFIRM_SETTING_TITLE}" in Settings → Extensions → Gmail (MAIL_CONFIRM_DIALOG=false in a manual setup).`;
 
 /** Fixed script: argv = [title, message, actionButton, giveUpSeconds]. */
 export const CONFIRM_APPLESCRIPT = [
@@ -195,7 +195,7 @@ export function buildSendConfirmationMessage(d: SendConfirmationDetails): string
   const replyTo = d.replyTo ?? [];
   const total = d.to.length + d.cc.length + d.bcc.length;
   const lines = [
-    'Claude wants to send this email from your iCloud account:',
+    'Claude wants to send this email from your Gmail account:',
     `Recipients: ${total} (To ${d.to.length}, Cc ${d.cc.length}, Bcc ${d.bcc.length})`,
     '',
     `From: ${dialogAddress(d.from)}`,

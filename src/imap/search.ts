@@ -1,8 +1,8 @@
 /**
  * search_messages (SPEC §6.1 #2): criteria building, date-ordered paging, cross-mailbox merge.
  *
- * Rules: always UNDELETED; UIDs sorted numerically on the client (iCloud may return them out of
- * order, and its SORT is a no-op).
+ * Rules: always UNDELETED; UIDs sorted numerically on the client (servers may return them out of
+ * order).
  *
  * Ordering. UID order is the order messages were filed into a folder, not their date: in Archive
  * or any folder filled by moving mail, recently filed old mail would come first. So each
@@ -38,6 +38,8 @@ export const ALL_MAILBOXES_MAX_WINDOW = 1000;
 const FETCH_CHUNK = 2000;
 
 export interface SearchCriteria {
+  /** Gmail search syntax (X-GM-RAW); needs the X-GM-EXT-1 capability. */
+  gmailQuery?: string | undefined;
   /** IMAP TEXT: headers and body. */
   query?: string | undefined;
   from?: string | undefined;
@@ -116,6 +118,7 @@ function textCriterion(value: string, field: string): string {
 
 export function hasCriteria(c: SearchCriteria): boolean {
   return (
+    nonEmpty(c.gmailQuery) ||
     nonEmpty(c.query) ||
     nonEmpty(c.from) ||
     nonEmpty(c.to) ||
@@ -139,6 +142,7 @@ export function hasCriteria(c: SearchCriteria): boolean {
  */
 export function buildSearchObject(c: SearchCriteria, options: { timeZone: string; now?: Date }): BuiltSearch {
   const q: SearchObject = { deleted: false };
+  if (nonEmpty(c.gmailQuery)) q.gmraw = textCriterion(c.gmailQuery, 'gmail_query');
   if (nonEmpty(c.query)) q.text = textCriterion(c.query, 'query');
   if (nonEmpty(c.from)) q.from = textCriterion(c.from, 'from');
   if (nonEmpty(c.to)) {

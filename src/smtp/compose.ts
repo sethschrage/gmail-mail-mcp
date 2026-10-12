@@ -13,10 +13,10 @@ import { dedupeAddresses, domainOf, formatAddressForDisplay, parseAddressInputs,
 
 export * from './address.js';
 
-/** Outgoing attachments must total <= 14 MB (iCloud's 20 MB message limit after base64). */
-export const MAX_OUTGOING_ATTACHMENT_BYTES = 14 * 1024 * 1024;
-/** iCloud's per-message limit. */
-export const MAX_MESSAGE_BYTES = 20 * 1024 * 1024;
+/** Outgoing attachments must total <= 18 MB (Gmail's 25 MB message limit after base64). */
+export const MAX_OUTGOING_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+/** Gmail's per-message limit. */
+export const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 export const MAX_QUOTED_CHARS = 20_000;
 export const MAX_REFERENCES = 20;
 
@@ -84,13 +84,13 @@ export function resolveFrom(input: string | undefined, config: Pick<Config, 'all
     if (!allowed) {
       throw new MailError(
         'FORBIDDEN',
-        `From address ${one.address} is not allowed. Allowed From addresses: ${allowedList}. (iCloud only sends from your own addresses and aliases; add more with MAIL_ALLOWED_FROM.)`,
+        `From address ${one.address} is not allowed. Allowed From addresses: ${allowedList}. (Gmail only sends from the account's own address and its "Send mail as" addresses; add those with MAIL_ALLOWED_FROM.)`,
       );
     }
     return { name: one.name || config.fromName || '', address: allowed };
   }
   const chosen = (preferred && lookup(preferred)) || config.fromAddress;
-  if (!chosen) throw new MailError('CONFIG', `No From address is configured (set ${settingName('ICLOUD_EMAIL')} or ${settingName('MAIL_FROM_ADDRESS')}).`);
+  if (!chosen) throw new MailError('CONFIG', `No From address is configured (set ${settingName('GMAIL_EMAIL')} or ${settingName('MAIL_FROM_ADDRESS')}).`);
   return { name: config.fromName ?? '', address: chosen };
 }
 
@@ -123,7 +123,7 @@ export function finalizeRecipients(r: Recipients, maxRecipients: number, options
   const total = to.length + cc.length + bcc.length;
   if (options.requireTo && total === 0) throw new MailError('INVALID_INPUT', 'At least one recipient is required.');
   if (total > maxRecipients) {
-    throw new MailError('INVALID_INPUT', `Too many recipients: ${total} (To+Cc+Bcc). The limit is ${maxRecipients} (MAIL_MAX_RECIPIENTS; iCloud's hard limit is 500).`);
+    throw new MailError('INVALID_INPUT', `Too many recipients: ${total} (To+Cc+Bcc). The limit is ${maxRecipients} (MAIL_MAX_RECIPIENTS; Gmail's limit over SMTP is 100).`);
   }
   return { to, cc, bcc };
 }
@@ -142,7 +142,7 @@ export async function loadAttachments(
     const file = await resolveAllowedFile(p, allowedDirs, ctx);
     total += file.size;
     if (total > budgetBytes) {
-      throw new MailError('TOO_LARGE', `Attachments total more than ${formatSize(budgetBytes)} (iCloud's 20 MB message limit after encoding). Remove or shrink some attachments.`);
+      throw new MailError('TOO_LARGE', `Attachments total more than ${formatSize(budgetBytes)} (Gmail's 25 MB message limit after encoding). Remove or shrink some attachments.`);
     }
     resolved.push(file);
   }
@@ -206,7 +206,7 @@ export async function buildMessage(msg: OutgoingMessage, options: { date?: Date;
   node.keepBcc = true;
   const rawWithBcc = await node.build();
   if (rawWithBcc.length > MAX_MESSAGE_BYTES) {
-    throw new MailError('TOO_LARGE', `The message is ${formatSize(rawWithBcc.length)}, above iCloud's 20 MB limit. Remove or shrink attachments.`);
+    throw new MailError('TOO_LARGE', `The message is ${formatSize(rawWithBcc.length)}, above Gmail's 25 MB limit. Remove or shrink attachments.`);
   }
   const envFrom = typeof envelope.from === 'string' ? envelope.from : msg.from.address;
   return { messageId: node.messageId(), date, envelope: { from: envFrom, to: [...envelope.to] }, raw, rawWithBcc, eightBit: hasEightBit(raw), message: msg };

@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
   "manifest_version": "0.3",
-  "name": "icloud-mail",
-  "display_name": "iCloud Mail",
+  "name": "gmail-mail",
+  "display_name": "Gmail",
   "version": "0.1.0",
-  "description": "Let Claude read, search, organize, draft and send your iCloud Mail, with guardrails. Works alongside Apple Mail.",
-  "long_description": "Connects Claude directly to your iCloud Mail account (imap.mail.me.com and smtp.mail.me.com) with an Apple **app-specific password**. It runs locally on your Mac and works alongside Apple Mail: everything Claude changes (read, flagged, moved, archived, trashed, drafts, sent mail) syncs to Apple Mail through iCloud. Works with @icloud.com, @me.com and @mac.com addresses and with iCloud+ custom domains.\n\n**What Claude can do**\n- Search mail and read messages, conversation threads and attachments\n- Mark messages read or unread, flag them (Apple Mail colours), move, archive and trash them\n- Create, rename and delete (empty) folders\n- Save drafts that appear in Apple Mail's Drafts folder, and send them once you approve\n- Send new mail, replies and forwards\n\n**Guardrails**\n- *Sending* can be switched off entirely (drafts keep working). Sending, replying and forwarding are marked as destructive actions, so Claude Desktop normally asks for your approval before each one; how often it asks depends on your Claude Desktop version and your answers to its prompts. For a check Claude cannot skip, turn on the Mac confirmation dialog.\n- *Permanent deletion* is off by default; deleting moves mail to Trash, which you can restore from until Trash is emptied (normally after about 30 days).\n- *Read-only mode* lets Claude only read and search: nothing in your mailbox can change.\n- Optional *native Mac confirmation dialog*: every send and permanent delete also needs a click on a macOS dialog that Claude cannot press for you. It lists every recipient.\n- At most 30 sends, 150 recipients per hour and 500 recipients per day (adjustable), and 50 recipients per message. Mail can only be sent from your own iCloud addresses.\n- Files can be attached only from the folders you choose (Desktop, Documents and Downloads by default); Claude can read files in those folders. Downloaded attachments are saved only into your attachment folder and are marked as downloaded from the internet.\n- Email content is handed to Claude marked as untrusted data, and Claude is told never to follow instructions found in emails. This lowers the risk of \"prompt injection\" but cannot rule it out, so keep reviewing send approvals, or turn on the Mac confirmation dialog.\n- Every change is recorded in an audit log (~/Library/Logs/icloud-mail-mcp/audit.jsonl), without message bodies.\n\n**Privacy**: your app-specific password is stored in the macOS Keychain by Claude Desktop and is only sent to Apple's mail servers. The extension runs on your Mac and has no servers of its own; the emails, search results and attachment contents Claude reads become part of your conversation and are processed by Anthropic like anything else you share with Claude.",
+  "description": "Let Claude read, search, label, organize, draft and send mail in a Gmail or Google Workspace account, with guardrails.",
+  "long_description": "Connects Claude to a Gmail or Google Workspace account over IMAP and SMTP (imap.gmail.com and smtp.gmail.com) with a Google **app password**. It runs locally on your Mac; everything Claude changes (read, starred, labels, archived, trashed, drafts, sent mail) shows up in Gmail on every device. Use it for a Google account other than the one connected through Claude's built-in Google Workspace connector. For use from claude.ai and the Claude mobile apps, deploy the cloud version instead (see the README).\n\n**What Claude can do**\n- Search with Gmail's own search syntax, and read messages, conversation threads and attachments\n- Mark messages read or unread, star them, add and remove labels, move, archive and trash them\n- Create, rename and delete (empty) labels\n- Save drafts that appear in Gmail's Drafts, and send them once you approve\n- Send new mail, replies and forwards\n\n**Guardrails**\n- *Sending* can be switched off entirely (drafts keep working). Sending, replying and forwarding are marked as destructive actions, so Claude Desktop normally asks for your approval before each one. For a check Claude cannot skip, turn on the Mac confirmation dialog.\n- *Permanent deletion* is off by default; deleting moves mail to Trash, which Gmail keeps for 30 days.\n- *Read-only mode* lets Claude only read and search.\n- At most 30 sends, 100 recipients per hour and 400 recipients per day (adjustable), and 50 recipients per message. Mail can only be sent from your own addresses.\n- Files can be attached only from the folders you choose (Desktop, Documents and Downloads by default).\n- Email content is handed to Claude marked as untrusted data, and Claude is told never to follow instructions found in emails. This lowers the risk of \"prompt injection\" but cannot rule it out.\n- Every change is recorded in an audit log (~/Library/Logs/gmail-mail-mcp/audit.jsonl), without message bodies.\n\n**Privacy**: your app password is stored in the macOS Keychain by Claude Desktop and is only sent to Google's mail servers. The emails Claude reads become part of your conversation.",
   "author": {
     "name": "Seth"
   },
@@ -21,9 +21,9 @@
         "${user_config.attach_from_dirs}"
       ],
       "env": {
-        "ICLOUD_EMAIL": "${user_config.icloud_email}",
-        "ICLOUD_APP_PASSWORD": "${user_config.app_specific_password}",
-        "ICLOUD_IMAP_USER": "${user_config.imap_username}",
+        "GMAIL_EMAIL": "${user_config.gmail_address}",
+        "GMAIL_APP_PASSWORD": "${user_config.app_password}",
+        "GMAIL_IMAP_USER": "${user_config.imap_username}",
         "MAIL_FROM_ADDRESS": "${user_config.from_address}",
         "MAIL_FROM_NAME": "${user_config.from_name}",
         "MAIL_ALLOWED_FROM": "${user_config.allowed_from}",
@@ -47,19 +47,19 @@
   "tools": [
     {
       "name": "list_mailboxes",
-      "description": "List your mail folders with total and unread counts"
+      "description": "List your labels and Gmail folders with total and unread counts"
     },
     {
       "name": "search_messages",
-      "description": "Search one folder or all folders by sender, recipient, subject, text, date, flags or size"
+      "description": "Search with Gmail's search syntax or by sender, recipient, subject, text, date, star or size"
     },
     {
       "name": "get_message",
-      "description": "Read one email: headers, attachment list and text body"
+      "description": "Read one email: headers, labels, attachment list and text body"
     },
     {
       "name": "get_thread",
-      "description": "Find every message in the conversation an email belongs to"
+      "description": "Show the Gmail conversation an email belongs to"
     },
     {
       "name": "get_account_info",
@@ -71,35 +71,39 @@
     },
     {
       "name": "mark_messages",
-      "description": "Mark messages read or unread, flag or unflag them, or set an Apple Mail flag colour"
+      "description": "Mark messages read or unread, star or unstar them"
+    },
+    {
+      "name": "label_messages",
+      "description": "Add or remove Gmail labels on messages"
     },
     {
       "name": "move_messages",
-      "description": "Move messages to another folder"
+      "description": "Move messages to another label"
     },
     {
       "name": "archive_messages",
-      "description": "Move messages to Archive"
+      "description": "Archive messages (remove the Inbox label, as Gmail's Archive button does)"
     },
     {
       "name": "trash_messages",
-      "description": "Move messages to Trash (recoverable until Trash is emptied, normally about 30 days)"
+      "description": "Move messages to Trash (recoverable for 30 days)"
     },
     {
       "name": "create_mailbox",
-      "description": "Create a folder"
+      "description": "Create a label"
     },
     {
       "name": "rename_mailbox",
-      "description": "Rename or move a folder you created"
+      "description": "Rename or nest a label you created"
     },
     {
       "name": "delete_mailbox",
-      "description": "Delete an empty folder you created"
+      "description": "Delete an empty label you created"
     },
     {
       "name": "save_draft",
-      "description": "Save a draft (new, reply or forward) to your Drafts folder without sending it"
+      "description": "Save a draft (new, reply or forward) to Gmail Drafts without sending it"
     },
     {
       "name": "send_email",
@@ -126,11 +130,11 @@
   "prompts": [
     {
       "name": "triage_inbox",
-      "description": "Summarise unread iCloud mail from the last N days, grouped by importance, and suggest actions without taking them.",
+      "description": "Summarise unread Gmail from the last N days, grouped by importance, and suggest actions without taking them.",
       "arguments": [
         "days"
       ],
-      "text": "Please triage my iCloud Mail inbox: summarise the unread mail from the last ${arguments.days} days (default 7). Use only read-only tools, group the messages by importance, and suggest next steps without taking any of them until I confirm."
+      "text": "Please triage my Gmail inbox: summarise the unread mail from the last ${arguments.days} days (default 7). Use only read-only tools, group the messages by importance, and suggest next steps without taking any of them until I confirm."
     },
     {
       "name": "summarize_thread",
@@ -140,22 +144,24 @@
         "mailbox",
         "uid"
       ],
-      "text": "Please summarise the email conversation ${arguments.about} (or the one containing message uid ${arguments.uid} in mailbox ${arguments.mailbox}) in my iCloud Mail, using read-only tools only: find it with search_messages if needed, then use get_thread."
+      "text": "Please summarise the email conversation ${arguments.about} (or the one containing message uid ${arguments.uid} in mailbox ${arguments.mailbox}) in my Gmail, using read-only tools only: find it with search_messages if needed, then use get_thread."
     }
   ],
   "prompts_generated": false,
   "keywords": [
     "email",
     "mail",
-    "icloud",
-    "apple mail",
+    "gmail",
+    "google",
+    "google workspace",
     "imap",
     "smtp",
-    "inbox"
+    "inbox",
+    "labels"
   ],
   "license": "MIT",
   "privacy_policies": [
-    "https://www.apple.com/legal/privacy/",
+    "https://policies.google.com/privacy",
     "https://www.anthropic.com/legal/privacy"
   ],
   "compatibility": {
@@ -167,30 +173,30 @@
     }
   },
   "user_config": {
-    "icloud_email": {
+    "gmail_address": {
       "type": "string",
-      "title": "iCloud email address",
-      "description": "Your primary iCloud Mail address, e.g. name@icloud.com (iCloud Mail must be turned on). It is used to log in. This is not the email you sign in to your Apple Account with if that is a Gmail, Outlook or other address. If you use an iCloud+ custom domain, enter your @icloud.com address here and your custom-domain address under From address.",
+      "title": "Gmail address",
+      "description": "The Gmail or Google Workspace address of the account, e.g. name@gmail.com. It is used to log in.",
       "required": true
     },
-    "app_specific_password": {
+    "app_password": {
       "type": "string",
-      "title": "App-specific password",
-      "description": "Create one at account.apple.com > Sign-In and Security > App-Specific Passwords (two-factor authentication is required). Your regular Apple Account password will not work. Stored in the macOS Keychain.",
+      "title": "App password",
+      "description": "Create one at myaccount.google.com/apppasswords (2-Step Verification must be on; a Workspace admin can turn app passwords off). Your regular Google password will not work. Stored in the macOS Keychain.",
       "sensitive": true,
       "required": true
     },
     "imap_username": {
       "type": "string",
       "title": "IMAP login (optional)",
-      "description": "Leave blank to log in with your iCloud email address (for @icloud.com, @me.com and @mac.com addresses the part before the @ is tried automatically if that fails). Set this only if your login is different; a full address entered here is also used to log in for sending.",
+      "description": "Leave blank to log in with your Gmail address. Set this only if your login is different; a full address entered here is also used to log in for sending.",
       "required": false,
       "default": ""
     },
     "from_address": {
       "type": "string",
       "title": "From address (optional)",
-      "description": "The address your mail is sent from, e.g. your custom-domain address or an iCloud alias. It must be an address of your iCloud account. Leave blank to send from your iCloud email address.",
+      "description": "The address your mail is sent from, if not your Gmail address. It must be one of the account's verified \"Send mail as\" addresses (Gmail settings > Accounts). Leave blank to send from your Gmail address.",
       "required": false,
       "default": ""
     },
@@ -204,14 +210,14 @@
     "allowed_from": {
       "type": "string",
       "title": "Other From addresses (optional)",
-      "description": "Comma-separated extra addresses Claude may send from (aliases of your iCloud account). Your iCloud email and From address are always allowed; anything else is refused before sending.",
+      "description": "Comma-separated extra addresses Claude may send from (verified \"Send mail as\" addresses of the account). Your Gmail address and From address are always allowed; anything else is refused before sending.",
       "required": false,
       "default": ""
     },
     "allow_send": {
       "type": "boolean",
       "title": "Allow sending",
-      "description": "Let Claude send, reply to and forward email, and send saved drafts. Claude Desktop normally asks for your approval before each send; turn on \"Confirm on my Mac\" for a check Claude cannot skip. Turn off to allow drafts only; you can then send drafts yourself from Apple Mail.",
+      "description": "Let Claude send, reply to and forward email, and send saved drafts. Claude Desktop normally asks for your approval before each send; turn on \"Confirm on my Mac\" for a check Claude cannot skip. Turn off to allow drafts only; you can then send drafts yourself from Gmail.",
       "required": false,
       "default": true
     },
@@ -241,7 +247,7 @@
       "title": "Attachment download folder",
       "description": "Where attachments that Claude downloads are saved. Created if it does not exist. Existing files are never overwritten.",
       "required": false,
-      "default": "${HOME}/Downloads/iCloud Mail Attachments"
+      "default": "${HOME}/Downloads/Gmail Attachments"
     },
     "attach_from_dirs": {
       "type": "directory",
@@ -276,53 +282,53 @@
     "max_recipients_per_hour": {
       "type": "number",
       "title": "Maximum recipients per hour",
-      "description": "Total To, Cc and Bcc recipients across all sends in any hour. 0 means no limit. iCloud itself allows about 1,000 recipients a day and may suspend sending beyond that.",
+      "description": "Total To, Cc and Bcc recipients across all sends in any hour. 0 means no limit. Gmail itself allows about 500 recipients a day (Workspace: 2,000) and suspends sending for a day beyond that.",
       "required": false,
-      "default": 150,
+      "default": 100,
       "min": 0,
       "max": 1000
     },
     "max_recipients_per_day": {
       "type": "number",
       "title": "Maximum recipients per day",
-      "description": "Total recipients across all sends in any 24 hours. 0 means no limit. Keep it below iCloud's limit of about 1,000.",
+      "description": "Total recipients across all sends in any 24 hours. 0 means no limit. Keep it below Gmail's limit of about 500 (Workspace: 2,000).",
       "required": false,
-      "default": 500,
+      "default": 400,
       "min": 0,
       "max": 1000
     },
     "sent_mailbox": {
       "type": "string",
       "title": "Sent folder (optional)",
-      "description": "Leave blank to use iCloud's own \"Sent Messages\" folder. Set this only if the wrong folder is used, e.g. because another mail app created a similarly named folder.",
+      "description": "Leave blank to use Gmail's own \"[Gmail]/Sent Mail\" folder (found automatically, also when it is named \"[Google Mail]/…\"). Set this only if the wrong folder is used.",
       "required": false,
       "default": ""
     },
     "trash_mailbox": {
       "type": "string",
       "title": "Trash folder (optional)",
-      "description": "Leave blank to use iCloud's own \"Deleted Messages\" folder. Set this only if the wrong folder is used, e.g. because another mail app created a similarly named folder.",
+      "description": "Leave blank to use Gmail's own \"[Gmail]/Trash\" folder (found automatically, also when it is named \"[Google Mail]/…\"). Set this only if the wrong folder is used.",
       "required": false,
       "default": ""
     },
     "drafts_mailbox": {
       "type": "string",
       "title": "Drafts folder (optional)",
-      "description": "Leave blank to use iCloud's own \"Drafts\" folder. Set this only if the wrong folder is used, e.g. because another mail app created a similarly named folder.",
+      "description": "Leave blank to use Gmail's own \"[Gmail]/Drafts\" folder (found automatically, also when it is named \"[Google Mail]/…\"). Set this only if the wrong folder is used.",
       "required": false,
       "default": ""
     },
     "archive_mailbox": {
       "type": "string",
       "title": "Archive folder (optional)",
-      "description": "Leave blank to use iCloud's own \"Archive\" folder. Set this only if the wrong folder is used, e.g. because another mail app created a similarly named folder.",
+      "description": "Leave blank to use Gmail's own \"[Gmail]/All Mail\" folder (found automatically, also when it is named \"[Google Mail]/…\"). Set this only if the wrong folder is used.",
       "required": false,
       "default": ""
     },
     "junk_mailbox": {
       "type": "string",
-      "title": "Junk folder (optional)",
-      "description": "Leave blank to use iCloud's own \"Junk\" folder. Set this only if the wrong folder is used, e.g. because another mail app created a similarly named folder.",
+      "title": "Spam folder (optional)",
+      "description": "Leave blank to use Gmail's own \"[Gmail]/Spam\" folder (found automatically, also when it is named \"[Google Mail]/…\"). Set this only if the wrong folder is used.",
       "required": false,
       "default": ""
     }

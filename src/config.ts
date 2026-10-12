@@ -30,21 +30,23 @@ export type QuotaStoreConfig =
 export interface Config {
   /** 'local' (stdio, Claude Desktop/Code) or 'cloud' (HTTP on Vercel); see runtime.ts. */
   runtime: Runtime;
+  /** Cloud: the account name from the connector URL (/api/gmail/<account>); set by the HTTP handler. */
+  accountName: string | undefined;
   email: string;
-  /** App-specific password from ICLOUD_APP_PASSWORD (undefined => Keychain lookup). */
+  /** Google app password from GMAIL_APP_PASSWORD (cloud: also GMAIL_PASSWORD; undefined => Keychain lookup). */
   password: string | undefined;
   keychainService: string;
-  /** ICLOUD_IMAP_USER override (undefined => full email, then local-part fallback). */
+  /** GMAIL_IMAP_USER override (undefined => the full email address). */
   imapUser: string | undefined;
   smtpUser: string;
   fromAddress: string;
   fromName: string | undefined;
-  /** ICLOUD_EMAIL ∪ MAIL_FROM_ADDRESS ∪ MAIL_ALLOWED_FROM, deduplicated case-insensitively. */
+  /** GMAIL_EMAIL ∪ MAIL_FROM_ADDRESS ∪ MAIL_ALLOWED_FROM, deduplicated case-insensitively. */
   allowedFrom: string[];
   /**
    * Addresses that belong to the user, for reply recipients and the default reply From: the
-   * allowed From set plus, for a legacy @icloud.com/@me.com/@mac.com account, the same name at the
-   * other two domains (never used as allowed From: iCloud may refuse to send from them).
+   * allowed From set plus, for a @gmail.com account, the same name at @googlemail.com and vice
+   * versa (Google delivers both to the same mailbox).
    */
   ownAddresses: string[];
   allowSend: boolean;
@@ -53,7 +55,7 @@ export interface Config {
   confirmDialog: boolean;
   maxSendsPerHour: number;
   maxRecipients: number;
-  /** Rolling recipient budgets across all sends (0 = unlimited); iCloud allows 1,000 recipients a day. */
+  /** Rolling recipient budgets across all sends (0 = unlimited); Gmail allows about 500 recipients a day (Workspace: 2,000). */
   maxRecipientsPerHour: number;
   maxRecipientsPerDay: number;
   attachmentDir: string;
@@ -95,22 +97,24 @@ export interface LoadConfigOptions {
 }
 
 export const MAX_BODY_CHARS_CEILING = 100_000;
-export const ICLOUD_MAX_RECIPIENTS = 500;
+/** Gmail's per-message recipient limit for mail sent over SMTP. */
+export const GMAIL_MAX_RECIPIENTS = 100;
 /** True for Gmail's and Google Workspace's IMAP/SMTP servers (imap.gmail.com, smtp.gmail.com). */
 export function isGmailHost(host: string | undefined): boolean {
   return host !== undefined && /(^|\.)gmail\.com$/i.test(host.trim());
 }
 
-export const ICLOUD_DOMAINS_FOR_OWN = ['icloud.com', 'me.com', 'mac.com'] as const;
+/** Consumer Gmail domains: Google delivers name@gmail.com and name@googlemail.com to the same mailbox. */
+export const GMAIL_DOMAINS_FOR_OWN = ['gmail.com', 'googlemail.com'] as const;
 
 /**
  * Titles of the extension settings (manifest.json user_config) for the env vars they set, so error
  * messages name the field a Claude Desktop user actually sees, next to the env var for manual setups.
  */
 export const SETTING_LABELS: Readonly<Record<string, string>> = {
-  ICLOUD_EMAIL: 'iCloud email address',
-  ICLOUD_APP_PASSWORD: 'App-specific password',
-  ICLOUD_IMAP_USER: 'IMAP login (optional)',
+  GMAIL_EMAIL: 'Gmail address',
+  GMAIL_APP_PASSWORD: 'App password',
+  GMAIL_IMAP_USER: 'IMAP login (optional)',
   MAIL_FROM_ADDRESS: 'From address (optional)',
   MAIL_FROM_NAME: 'Your name (optional)',
   MAIL_ALLOWED_FROM: 'Other From addresses (optional)',
@@ -128,7 +132,7 @@ export const SETTING_LABELS: Readonly<Record<string, string>> = {
   MAIL_TRASH_MAILBOX: 'Trash folder (optional)',
   MAIL_DRAFTS_MAILBOX: 'Drafts folder (optional)',
   MAIL_ARCHIVE_MAILBOX: 'Archive folder (optional)',
-  MAIL_JUNK_MAILBOX: 'Junk folder (optional)',
+  MAIL_JUNK_MAILBOX: 'Spam folder (optional)',
 };
 
 /** `"<settings title>" (ENV_VAR)` for env vars that have a settings field, else just the env var. */
@@ -223,8 +227,8 @@ export function isValidTimezone(tz: string): boolean {
 
 export function defaultAuditLogPath(platform: NodeJS.Platform, home: string): string {
   return platform === 'darwin'
-    ? path.join(home, 'Library', 'Logs', 'icloud-mail-mcp', 'audit.jsonl')
-    : path.join(home, '.local', 'state', 'icloud-mail-mcp', 'audit.jsonl');
+    ? path.join(home, 'Library', 'Logs', 'gmail-mail-mcp', 'audit.jsonl')
+    : path.join(home, '.local', 'state', 'gmail-mail-mcp', 'audit.jsonl');
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadConfigOptions = {}): ConfigResult {
@@ -307,28 +311,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
   };
 
   // --- identity -------------------------------------------------------------------------------
-  const emailRaw = str('ICLOUD_EMAIL');
+  const emailRaw = str('GMAIL_EMAIL');
   let email = '';
   if (emailRaw === undefined) {
     errors.push(
       cloud
         ? CLOUD_NO_LOGIN
-        : 'ICLOUD_EMAIL is not set. Set it to your iCloud Mail address (for example you@icloud.com) as "iCloud email address" in the extension settings, or in the server env.',
+        : 'GMAIL_EMAIL is not set. Set it to your Gmail or Google Workspace address (for example you@gmail.com) as "Gmail address" in the extension settings, or in the server env.',
     );
   } else {
-    email = address('ICLOUD_EMAIL', emailRaw) ?? '';
+    email = address('GMAIL_EMAIL', emailRaw) ?? '';
   }
 
   // Passed exactly as given (with or without hyphens); only surrounding whitespace from pasting is dropped.
-  // The cloud version also accepts ICLOUD_PASSWORD (the name the other Vercel MCP servers use).
-  const password = str('ICLOUD_APP_PASSWORD') ?? (cloud ? str('ICLOUD_PASSWORD') : undefined);
+  // The cloud version also accepts GMAIL_PASSWORD (the name the per-account Vercel variables map to).
+  const password = str('GMAIL_APP_PASSWORD') ?? (cloud ? str('GMAIL_PASSWORD') : undefined);
   // There is no Keychain in the cloud, so a missing password is a configuration error up front.
   if (cloud && password === undefined && emailRaw !== undefined) errors.push(CLOUD_NO_LOGIN);
   const fromAddress = address('MAIL_FROM_ADDRESS', str('MAIL_FROM_ADDRESS')) ?? email;
-  const imapUser = str('ICLOUD_IMAP_USER');
-  // A full address in the IMAP login (the @icloud.com login of a custom-domain user) is the SMTP
-  // login too; the settings form has no separate SMTP login field.
-  const smtpUser = str('ICLOUD_SMTP_USER') ?? (imapUser && isValidEmailAddress(imapUser) ? imapUser : email);
+  const imapUser = str('GMAIL_IMAP_USER');
+  // A full address in the IMAP login is the SMTP login too; the settings form has no separate SMTP login field.
+  const smtpUser = str('GMAIL_SMTP_USER') ?? (imapUser && isValidEmailAddress(imapUser) ? imapUser : email);
 
   const allowedFrom: string[] = [];
   const pushAllowed = (a: string | undefined): void => {
@@ -346,8 +349,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
     const at = a.lastIndexOf('@');
     if (at <= 0) continue;
     const domain = a.slice(at + 1).toLowerCase();
-    if (!(ICLOUD_DOMAINS_FOR_OWN as readonly string[]).includes(domain)) continue;
-    for (const d of ICLOUD_DOMAINS_FOR_OWN) pushOwn(`${a.slice(0, at)}@${d}`);
+    if (!(GMAIL_DOMAINS_FOR_OWN as readonly string[]).includes(domain)) continue;
+    for (const d of GMAIL_DOMAINS_FOR_OWN) pushOwn(`${a.slice(0, at)}@${d}`);
   }
 
   // --- guardrails -----------------------------------------------------------------------------
@@ -361,13 +364,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
     confirmDialog = false;
   }
   const maxSendsPerHour = int('MAIL_MAX_SENDS_PER_HOUR', 30, 0, 100_000, { lenient: true });
-  const maxRecipients = int('MAIL_MAX_RECIPIENTS', 50, 1, ICLOUD_MAX_RECIPIENTS, { lenient: true });
-  const maxRecipientsPerHour = int('MAIL_MAX_RECIPIENTS_PER_HOUR', 150, 0, 100_000, { lenient: true });
-  const maxRecipientsPerDay = int('MAIL_MAX_RECIPIENTS_PER_DAY', 500, 0, 100_000, { lenient: true });
+  const maxRecipients = int('MAIL_MAX_RECIPIENTS', 50, 1, GMAIL_MAX_RECIPIENTS, { lenient: true });
+  const maxRecipientsPerHour = int('MAIL_MAX_RECIPIENTS_PER_HOUR', 100, 0, 100_000, { lenient: true });
+  const maxRecipientsPerDay = int('MAIL_MAX_RECIPIENTS_PER_DAY', 400, 0, 100_000, { lenient: true });
 
   // --- files ----------------------------------------------------------------------------------
   // The cloud version has no disk to save to or attach from: attachments are returned inline.
-  const attachmentDir = cloud ? '' : pathValue('MAIL_ATTACHMENT_DIR', '~/Downloads/iCloud Mail Attachments');
+  const attachmentDir = cloud ? '' : pathValue('MAIL_ATTACHMENT_DIR', '~/Downloads/Gmail Attachments');
   if (cloud) {
     for (const name of ['MAIL_ATTACHMENT_DIR', 'MAIL_ATTACH_FROM_DIRS']) {
       if (str(name) !== undefined) warnings.push(`${name} is ignored in the cloud version: there is no local disk (attachments are returned inline, and files cannot be attached from disk).`);
@@ -428,8 +431,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
     } else quotaStore = { kind: 'missing' };
   }
 
-  // Gmail's SMTP server files every sent message in Sent itself, so a copy would be a duplicate.
-  const saveSentCopy = bool('MAIL_SAVE_SENT_COPY', !isGmailHost(str('IMAP_HOST')));
   // In the cloud the Vercel function's own limit (vercel.json maxDuration, 60 s) must come later.
   const operationTimeoutSeconds = int('MAIL_OPERATION_TIMEOUT_SECONDS', cloud ? 50 : 120, 5, 3600, { lenient: true });
 
@@ -465,32 +466,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
 
   // --- servers --------------------------------------------------------------------------------
   const imap = {
-    host: str('IMAP_HOST') ?? 'imap.mail.me.com',
+    host: str('IMAP_HOST') ?? 'imap.gmail.com',
     port: int('IMAP_PORT', 993, 1, 65_535),
     secure: bool('IMAP_SECURE', true),
     allowPlaintext: bool('IMAP_ALLOW_PLAINTEXT', false),
   };
   if (!imap.secure && imap.allowPlaintext) {
-    warnings.push('IMAP_SECURE=false with IMAP_ALLOW_PLAINTEXT=true: the IMAP login (with the app-specific password) may be sent unencrypted. Use this only for local testing.');
+    warnings.push('IMAP_SECURE=false with IMAP_ALLOW_PLAINTEXT=true: the IMAP login (with the app password) may be sent unencrypted. Use this only for local testing.');
   }
   const smtpSecure = bool('SMTP_SECURE', false);
   const smtp = {
-    host: str('SMTP_HOST') ?? 'smtp.mail.me.com',
+    host: str('SMTP_HOST') ?? 'smtp.gmail.com',
     port: int('SMTP_PORT', 587, 1, 65_535),
     secure: smtpSecure,
     requireTLS: smtpSecure ? false : bool('SMTP_REQUIRE_TLS', true),
   };
   if (!smtp.secure && !smtp.requireTLS) {
-    warnings.push('SMTP_REQUIRE_TLS=false: the SMTP login (with the app-specific password) may be sent unencrypted if the server does not offer STARTTLS. Use this only for local testing.');
+    warnings.push('SMTP_REQUIRE_TLS=false: the SMTP login (with the app password) may be sent unencrypted if the server does not offer STARTTLS. Use this only for local testing.');
   }
+  // Gmail's SMTP server files every sent message in Sent itself, so a copy would be a duplicate.
+  // Other servers (the local test server) need the copy.
+  const saveSentCopy = bool('MAIL_SAVE_SENT_COPY', !isGmailHost(imap.host));
   const caRaw = str('MAIL_TLS_CA_FILE');
   const tlsCaFile = caRaw === undefined ? undefined : expandPath(caRaw, pathCtx);
 
   const config: Config = {
     runtime,
+    accountName: cloud ? str('MAIL_ACCOUNT_NAME') : undefined,
     email,
     password,
-    keychainService: str('ICLOUD_KEYCHAIN_SERVICE') ?? 'icloud-mail-mcp',
+    keychainService: str('GMAIL_KEYCHAIN_SERVICE') ?? 'gmail-mail-mcp',
     imapUser,
     smtpUser,
     fromAddress,
@@ -523,9 +528,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
   return { config, errors, warnings };
 }
 
-/** Config error for a cloud deployment with no iCloud login (headers or env). */
+/** Config error for a cloud deployment with no Gmail login for the account. */
 export const CLOUD_NO_LOGIN =
-  'No iCloud login was provided. Either add the headers X-ICloud-Email (your iCloud Mail address) and X-ICloud-Password (an app-specific password) to the connector, or set ICLOUD_EMAIL and ICLOUD_PASSWORD (Sensitive, Production) in the Vercel project\'s environment variables. Create the app-specific password at account.apple.com > Sign-In and Security > App-Specific Passwords.';
+  'No Gmail login is set for this account. In the Vercel project\'s environment variables (Sensitive, Production), set GMAIL_<ACCOUNT>_EMAIL to the Gmail or Google Workspace address and GMAIL_<ACCOUNT>_PASSWORD to an app password, where <ACCOUNT> is this connector\'s account name in capitals (the last part of its URL), then redeploy. Create the app password at https://myaccount.google.com/apppasswords (2-Step Verification must be on).';
 
 /** Effective feature switches after MAIL_READ_ONLY overrides the others (SPEC §3). */
 export function effectiveFeatures(config: Config): {

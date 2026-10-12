@@ -62,7 +62,7 @@ describe('manifest.json identity', () => {
 describe('manifest.json tools and prompts', () => {
   let root: string;
   beforeAll(() => {
-    root = mkdtempSync(path.join(os.tmpdir(), 'icloud-mail-mcp-manifest-'));
+    root = mkdtempSync(path.join(os.tmpdir(), 'gmail-mail-mcp-manifest-'));
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -77,7 +77,7 @@ describe('manifest.json tools and prompts', () => {
 
   it('equals the tools a server with every feature enabled actually registers, and covers every mode', async () => {
     const quiet = createLogger({ level: 'error', sink: () => undefined });
-    const env = { ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'x', MAIL_AUDIT_LOG: 'off', MAIL_ALLOW_PERMANENT_DELETE: 'true' };
+    const env = { GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'x', MAIL_AUDIT_LOG: 'off', MAIL_ALLOW_PERMANENT_DELETE: 'true' };
     const svc = new MailService(loadConfig(env, { platform: 'linux', home: root }), { logger: quiet, platform: 'linux' });
     const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
     await buildServer(svc).connect(serverSide);
@@ -176,7 +176,7 @@ describe('manifest.json user_config', () => {
 
   it('maps every field to an env var the server reads, or to the --attach-from-dirs arguments', () => {
     const known = envVarsReadByConfig();
-    expect(known.has('ICLOUD_EMAIL')).toBe(true);
+    expect(known.has('GMAIL_EMAIL')).toBe(true);
     const env = manifest.server.mcp_config.env ?? {};
     const referenced: string[] = [];
     for (const [name, value] of Object.entries(env)) {
@@ -194,13 +194,13 @@ describe('manifest.json user_config', () => {
   it('with only the required fields filled in, the host starts the server with the server defaults', async () => {
     const { result, env, args } = await hostConfig(REQUIRED_ONLY);
     // What the reference host really passes (research-mcpb Gotcha B: ${HOME} in defaults stays literal).
-    expect(env['ICLOUD_IMAP_USER']).toBe('');
+    expect(env['GMAIL_IMAP_USER']).toBe('');
     expect(env['MAIL_ATTACHMENT_DIR']).toBe('${HOME}/Downloads/iCloud Mail Attachments');
     expect(args.slice(1)).toEqual([ATTACH_FROM_DIRS_FLAG, '${HOME}/Desktop', '${HOME}/Documents', '${HOME}/Downloads']);
 
     expect(result.errors).toEqual([]);
     expect(result.warnings).toEqual([]);
-    const defaults = loadConfig({ ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'abcd-efgh-ijkl-mnop' }, { platform: 'darwin', home: HOME, systemTimezone: 'Europe/Berlin' });
+    const defaults = loadConfig({ GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'abcd-efgh-ijkl-mnop' }, { platform: 'darwin', home: HOME, systemTimezone: 'Europe/Berlin' });
     expect(result.config).toEqual(defaults.config);
     expect(result.config.attachmentDir).toBe(`${HOME}/Downloads/iCloud Mail Attachments`);
     expect(result.config.attachFromDirs).toEqual([`${HOME}/Desktop`, `${HOME}/Documents`, `${HOME}/Downloads`]);
@@ -210,11 +210,11 @@ describe('manifest.json user_config', () => {
     const bare = structuredClone(manifest);
     for (const option of Object.values(bare.user_config ?? {})) delete option.default;
     const { result, env, args } = await hostConfig(REQUIRED_ONLY, bare);
-    expect(env['ICLOUD_IMAP_USER']).toBe('${user_config.imap_username}');
+    expect(env['GMAIL_IMAP_USER']).toBe('${user_config.imap_username}');
     expect(env['MAIL_ALLOW_SEND']).toBe('${user_config.allow_send}');
     expect(args.slice(1)).toEqual([ATTACH_FROM_DIRS_FLAG, '${user_config.attach_from_dirs}']);
     expect(result.errors).toEqual([]);
-    const defaults = loadConfig({ ICLOUD_EMAIL: 'me@icloud.com', ICLOUD_APP_PASSWORD: 'abcd-efgh-ijkl-mnop' }, { platform: 'darwin', home: HOME, systemTimezone: 'Europe/Berlin' });
+    const defaults = loadConfig({ GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'abcd-efgh-ijkl-mnop' }, { platform: 'darwin', home: HOME, systemTimezone: 'Europe/Berlin' });
     expect(result.config).toEqual(defaults.config);
   });
 

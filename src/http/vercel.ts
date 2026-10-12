@@ -1,6 +1,6 @@
 /**
  * Vercel entry (bundled to build/vercel/handler.mjs by scripts/build-vercel.mjs and re-exported by
- * api/icloud-mail.js): GET/POST/DELETE web handlers for https://<project>.vercel.app/api/icloud-mail.
+ * api/gmail/[account].js): GET/POST/DELETE web handlers for https://<project>.vercel.app/api/gmail/<account>.
  */
 import { errorMessage } from '../errors.js';
 import { log, redact } from '../log.js';

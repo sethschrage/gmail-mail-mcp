@@ -105,9 +105,9 @@ export class RateLimiter {
 }
 
 /**
- * Rolling recipient budgets across all sends (one hour and one day; 0 = unlimited). iCloud allows
- * about 1,000 recipients a day; with only a per-message count, 30 sends × 50 recipients an hour
- * could exhaust that (and get sending suspended) within an hour.
+ * Rolling recipient budgets across all sends (one hour and one day; 0 = unlimited). Gmail allows
+ * about 500 recipients a day (Workspace: 2,000); with only a per-message count, 30 sends × 50
+ * recipients an hour could exhaust that (and get sending suspended for a day) within an hour.
  */
 export class RecipientLimiter {
   private readonly sent: Array<{ at: number; n: number }> = [];
@@ -142,7 +142,7 @@ export class RecipientLimiter {
       const which = over(r.hour) ? { left: r.hour, max: this.maxPerHour, env: 'MAIL_MAX_RECIPIENTS_PER_HOUR', span: 'hour' } : { left: r.day, max: this.maxPerDay, env: 'MAIL_MAX_RECIPIENTS_PER_DAY', span: 'day' };
       throw new MailError(
         'RATE_LIMIT',
-        `Recipient limit reached: this email has ${n} recipient(s), but only ${which.left} more are allowed in the current ${which.span} (at most ${which.max} per ${which.span}; ${settingName(which.env)}; iCloud itself allows about 1,000 recipients a day). Nothing was sent; try later, or save a draft instead.`,
+        `Recipient limit reached: this email has ${n} recipient(s), but only ${which.left} more are allowed in the current ${which.span} (at most ${which.max} per ${which.span}; ${settingName(which.env)}; Gmail itself allows about 500 recipients a day). Nothing was sent; try later, or save a draft instead.`,
       );
     }
     if (this.maxPerHour <= 0 && this.maxPerDay <= 0) return { commit: () => undefined, release: () => undefined };
@@ -187,7 +187,7 @@ export function explainRecipientRejection(err: NodemailerError): string {
   const code = err.responseCode;
   const text = responseText(err);
   const enh = enhancedStatus(text);
-  if (enh === '4.5.3' || enh === '5.5.3') return `${text} (too many recipients; iCloud allows 500 per message and 1000 per day)`;
+  if (enh === '4.5.3' || enh === '5.5.3') return `${text} (too many recipients; Gmail allows 100 per message over SMTP and about 500 a day)`;
   if (enh && /^[45]\.2\.2$/.test(enh)) return `${text} (the recipient's mailbox is full${enh.startsWith('4') ? '; retrying later may work' : ''})`;
   if (code !== undefined && code >= 400 && code < 500) return `${text} (temporary failure; retrying later may work)`;
   if (enh?.startsWith('5.7.')) return `${text} (the recipient's server refused it by policy)`;
@@ -225,19 +225,19 @@ export function mapSmtpError(err: unknown, ctx: { host: string; port: number; us
   if ((code === 550 || code === 553) && (atMailFrom || /not one of your addresses/i.test(text)) && (enh === '5.7.0' || /not one of your addresses/i.test(text) || code === 553)) {
     return new MailError(
       'SMTP',
-      `iCloud refused the From address: "${text}". The From must be your iCloud address or one of its aliases / custom-domain addresses set up in iCloud Mail settings. Not sent.`,
+      `Gmail refused the From address: "${text}". The From must be the account's own address or one of its verified "Send mail as" addresses (Gmail settings > Accounts). Not sent.`,
       { cause: err },
     );
   }
   if ((code === 552 || enh === '5.3.4') && (atMailFrom || command === 'DATA' || e.code === 'EMESSAGE' || enh === '5.3.4') && !(enh && /^[45]\.2\.2$/.test(enh))) {
-    return new MailError('TOO_LARGE', `The message is too large for iCloud (20 MB per message, including encoding): ${text}. Not sent.`, { cause: err });
+    return new MailError('TOO_LARGE', `The message is too large for Gmail (25 MB per message, including encoding): ${text}. Not sent.`, { cause: err });
   }
-  if (enh === '4.5.3' || enh === '5.5.3') return new MailError('SMTP', `Too many recipients for iCloud (500 per message, 1000 per day): ${text}. Not sent.`, { cause: err });
+  if (enh === '4.5.3' || enh === '5.5.3') return new MailError('SMTP', `Too many recipients for Gmail (100 per message over SMTP, about 500 a day): ${text}. Not sent.`, { cause: err });
   if (code !== undefined && code >= 400 && code < 500) {
-    return new MailError('SMTP', `iCloud reported a temporary problem: ${text}. The message was not sent; retrying later may work.`, { cause: err });
+    return new MailError('SMTP', `Gmail reported a temporary problem: ${text}. The message was not sent; retrying later may work.`, { cause: err });
   }
   if (code !== undefined && code >= 500) {
-    return new MailError('SMTP', `iCloud rejected the message: ${text}. Not sent.`, { cause: err });
+    return new MailError('SMTP', `Gmail rejected the message: ${text}. Not sent.`, { cause: err });
   }
   const causeCode = (e as { code?: string }).code;
   if (causeCode && (SMTP_TLS_CODES.has(causeCode) || causeCode === 'ETLS')) {
@@ -358,7 +358,7 @@ export class Sender {
     try {
       const sent = await this.deps.registry.resolveSpecial('sent');
       if (!sent) return { sent_copy_saved: false, sent_copy_note: `No Sent mailbox was found (set its name as ${settingName('MAIL_SENT_MAILBOX')}).` };
-      // Optional duplicate check (in case Apple ever files submitted mail itself): a failure here
+      // Optional duplicate check (for servers that file submitted mail themselves, as Gmail does): a failure here
       // must not stop the APPEND.
       let existing: number[] = [];
       try {
@@ -456,7 +456,7 @@ export class Sender {
       if (config.confirmDialog) {
         const decision = await this.deps.confirm(
           {
-            title: 'iCloud Mail: send this email?',
+            title: 'Gmail: send this email?',
             action: 'Send',
             message: buildSendConfirmationMessage({
               from: msg.from,

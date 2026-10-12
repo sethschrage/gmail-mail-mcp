@@ -304,7 +304,7 @@ describe('guardrails', () => {
 
 describe('authentication failures', () => {
   it('IMAP: wrong password gives the friendly app-specific-password guidance', async () => {
-    const bad = createTestService(dirs, { ICLOUD_APP_PASSWORD: 'wrong-password' });
+    const bad = createTestService(dirs, { GMAIL_APP_PASSWORD: 'wrong-password' });
     try {
       const err = await expectMailError(bad.listMailboxes(), 'AUTH', /app-specific password/);
       expect(err.message).toMatch(/revoked/);
@@ -323,7 +323,7 @@ describe('authentication failures', () => {
   });
 
   it('SMTP: wrong password gives the friendly guidance and sends nothing', async () => {
-    const bad = createTestService(dirs, { ICLOUD_APP_PASSWORD: 'wrong-password' });
+    const bad = createTestService(dirs, { GMAIL_APP_PASSWORD: 'wrong-password' });
     try {
       const err = await expectMailError(bad.sendEmail({ to: ['friend@example.com'], subject: 'x', body: 'x' }), 'AUTH', /SMTP .*rejected the login/);
       expect(err.message).toMatch(/full iCloud Mail address/);
@@ -333,8 +333,8 @@ describe('authentication failures', () => {
     }
   });
 
-  it('ICLOUD_IMAP_USER overrides the login (local part works on this server)', async () => {
-    const local = createTestService(dirs, { ICLOUD_IMAP_USER: 'testuser' });
+  it('GMAIL_IMAP_USER overrides the login (local part works on this server)', async () => {
+    const local = createTestService(dirs, { GMAIL_IMAP_USER: 'testuser' });
     try {
       await local.listMailboxes();
       expect(local.imap.effectiveUser).toBe('testuser');
@@ -344,13 +344,13 @@ describe('authentication failures', () => {
   });
 
   it('missing configuration is reported by every tool, and account info still works', async () => {
-    const empty = createTestService(dirs, { ICLOUD_EMAIL: '', ICLOUD_APP_PASSWORD: '${user_config.app_specific_password}' });
+    const empty = createTestService(dirs, { GMAIL_EMAIL: '', GMAIL_APP_PASSWORD: '${user_config.app_specific_password}' });
     try {
-      await expectMailError(empty.listMailboxes(), 'CONFIG', /ICLOUD_EMAIL is not set/);
+      await expectMailError(empty.listMailboxes(), 'CONFIG', /GMAIL_EMAIL is not set/);
       await expectMailError(empty.sendEmail({ to: ['a@example.com'], subject: 'x', body: 'x' }), 'CONFIG', /App-Specific Passwords/);
       const info = await empty.getAccountInfo();
       expect(info['status']).toBe('not configured');
-      expect(info['config_errors']).toEqual([expect.stringMatching(/ICLOUD_EMAIL/)]);
+      expect(info['config_errors']).toEqual([expect.stringMatching(/GMAIL_EMAIL/)]);
     } finally {
       await empty.close();
     }

@@ -42,9 +42,9 @@ export class AuditLog {
     const line = `${redact(JSON.stringify({ ts: new Date().toISOString(), ...entry }, jsonReplacer))}\n`;
     if (file === 'stdout' || file === 'stderr') {
       // Cloud version: the Vercel logs are the audit log. One JSON line per entry, tagged so it can
-      // be filtered (search the logs for "icloud-mail-audit").
+      // be filtered (search the logs for "gmail-mail-audit").
       try {
-        (file === 'stdout' ? process.stdout : process.stderr).write(`icloud-mail-audit ${line}`);
+        (file === 'stdout' ? process.stdout : process.stderr).write(`gmail-mail-audit ${line}`);
       } catch (err) {
         this.logger.warn('could not write the audit log', { file, err });
       }

@@ -1,5 +1,5 @@
 {
-  "name": "icloud-mail-mcp-test-infra",
+  "name": "gmail-mail-mcp-test-infra",
   "version": "1.0.0",
   "private": true,
   "description": "Local Dovecot IMAP + SMTP sink that mimics iCloud Mail for integration tests",

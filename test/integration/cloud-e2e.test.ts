@@ -46,7 +46,7 @@ describe('reading over HTTP', () => {
   });
 
   it('works with a login sent in connector headers instead of the env', async () => {
-    const h = createCloudHandler({ env: cloudEnv({ ICLOUD_EMAIL: undefined, ICLOUD_PASSWORD: undefined }), serviceDeps: { quotaFetch: fake.fetch } });
+    const h = createCloudHandler({ env: cloudEnv({ GMAIL_EMAIL: undefined, GMAIL_PASSWORD: undefined }), serviceDeps: { quotaFetch: fake.fetch } });
     const s = await connectCloud(h, { headers: { 'X-ICloud-Email': ACCOUNT, 'X-ICloud-Password': PASSWORD } });
     const r = await call(s, 'get_message', { mailbox: 'INBOX', uid: 1 });
     expect(r.isError).toBeFalsy();
@@ -63,7 +63,7 @@ describe('reading over HTTP', () => {
     const r = await call(s, 'list_mailboxes');
     expect(r.isError).toBe(true);
     expect(resultText(r)).toMatch(/app-specific password/);
-    expect(resultText(r)).toMatch(/X-ICloud-Password connector header or set ICLOUD_PASSWORD/);
+    expect(resultText(r)).toMatch(/X-ICloud-Password connector header or set GMAIL_PASSWORD/);
     expect(resultText(r)).not.toContain('wrong-pass-7781');
     await s.close();
   });
@@ -167,7 +167,7 @@ describe('drafts and sending', () => {
   it('writes the audit trail to stdout (the Vercel logs)', async () => {
     const lines: string[] = [];
     const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
-      if (String(chunk).startsWith('icloud-mail-audit ')) lines.push(String(chunk));
+      if (String(chunk).startsWith('gmail-mail-audit ')) lines.push(String(chunk));
       return true;
     }) as typeof process.stdout.write);
     const h = createCloudHandler({ env: cloudEnv({ MAIL_AUDIT_LOG: undefined }), serviceDeps: { quotaFetch: fake.fetch } });
