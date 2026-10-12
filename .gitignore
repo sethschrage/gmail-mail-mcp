@@ -20,3 +20,6 @@ test-infra/run/
 test-infra/logs/
 test-infra/certs/
 test-infra/dovecot/dovecot.conf
+
+# Private connector URLs (contain access keys)
+*.local.txt
