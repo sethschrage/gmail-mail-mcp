@@ -469,9 +469,13 @@ export class MailboxRegistry {
     return mailboxes.filter((m) => m.selectable && m.specialUse !== 'trash' && m.specialUse !== 'junk' && !isNotesMailbox(m));
   }
 
-  /** Selectable mailboxes all_mailboxes leaves out (Trash, Junk, Notes). */
+  /**
+   * Selectable mailboxes all_mailboxes leaves out: Trash and Junk, and Notes on servers without an
+   * \All mailbox (on Gmail a "Notes" folder is an ordinary label, already covered by All Mail).
+   */
   async excludedFromAllMailboxes(): Promise<MailboxInfo[]> {
     const mailboxes = await this.list();
-    return mailboxes.filter((m) => m.selectable && (m.specialUse === 'trash' || m.specialUse === 'junk' || isNotesMailbox(m)));
+    const hasAll = mailboxes.some(isAllMailbox);
+    return mailboxes.filter((m) => m.selectable && (m.specialUse === 'trash' || m.specialUse === 'junk' || (!hasAll && isNotesMailbox(m))));
   }
 }

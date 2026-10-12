@@ -396,6 +396,12 @@ describe('Gmail (\\All mailbox)', () => {
     expect((await reg.excludedFromAllMailboxes()).map((m) => m.path).sort()).toEqual(['[Gmail]/Spam', '[Gmail]/Trash']);
   });
 
+  it('on Gmail a label named "Notes" is covered by All Mail, not reported as left out', async () => {
+    const imap = { run: <T>(fn: (c: unknown) => Promise<T>) => fn({ list: async () => [...gmailLike(), entry('Notes')] }) };
+    const reg = new MailboxRegistry(imap as unknown as ImapManager, { mailboxOverrides: {} } as unknown as Config);
+    expect((await reg.excludedFromAllMailboxes()).map((m) => m.path).sort()).toEqual(['[Gmail]/Spam', '[Gmail]/Trash']);
+  });
+
   it('without an \\All mailbox every folder but Trash, Junk and Notes is searched', async () => {
     const imap = { run: <T>(fn: (c: unknown) => Promise<T>) => fn({ list: async () => [entry('INBOX'), entry('Archive'), entry('Notes'), entry('Trash', { specialUse: '\\Trash', source: 'name' })] }) };
     const reg = new MailboxRegistry(imap as unknown as ImapManager, { mailboxOverrides: {} } as unknown as Config);
