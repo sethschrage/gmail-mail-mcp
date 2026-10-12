@@ -231,7 +231,7 @@ describe('markQuarantined', () => {
 describe('attachmentSaveError', () => {
   const err = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`${code}: boom`), { code });
   it('maps EPERM on macOS to the privacy hint', () => {
-    const e = attachmentSaveError(err('EPERM'), '/Users/j/Downloads/iCloud Mail Attachments', 'darwin');
+    const e = attachmentSaveError(err('EPERM'), '/Users/j/Downloads/Gmail Attachments', 'darwin');
     expect(e?.code).toBe('CONFIG');
     expect(e?.message).toMatch(/Privacy & Security → Files and Folders/);
     expect(e?.message).toContain('"Attachment download folder"');

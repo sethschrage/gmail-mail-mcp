@@ -28,8 +28,8 @@ describe('logger', () => {
   });
 
   it('redacts registered secrets and their SASL/base64 forms', () => {
-    registerSecret('abcd-efgh-ijkl-mnop', ['me@icloud.com']);
-    const plain = Buffer.from('\u0000me@icloud.com\u0000abcd-efgh-ijkl-mnop').toString('base64');
+    registerSecret('abcd-efgh-ijkl-mnop', ['me@gmail.com']);
+    const plain = Buffer.from('\u0000me@gmail.com\u0000abcd-efgh-ijkl-mnop').toString('base64');
     expect(redact(`pass=abcd-efgh-ijkl-mnop sasl=${plain} nohyphen=abcdefghijklmnop`)).toBe('pass=[REDACTED] sasl=[REDACTED] nohyphen=[REDACTED]');
     const lines: string[] = [];
     createLogger({ sink: (l) => lines.push(l) }).error('failed with abcd-efgh-ijkl-mnop', { err: new Error('abcd-efgh-ijkl-mnop') });

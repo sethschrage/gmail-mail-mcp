@@ -1,15 +1,15 @@
 /**
- * Cloud (Vercel) entry without a mail server: access key, header/env login, cloud configuration,
+ * Cloud (Vercel) entry without a mail server: account routes and per-account access keys and logins, cloud configuration,
  * the shared send-limit store, the tool surface offered in the cloud, and credential hygiene.
  */
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { MailError } from '../../src/errors.js';
-import { checkAccess, createCloudHandler, loginCacheKey, loginFromRequest, MAX_CACHED_LOGINS, MIN_ACCESS_KEY_LENGTH, type CloudHandler } from '../../src/http/handler.js';
+import { accountEnv, accountFromRequest, checkAccess, createCloudHandler, loginCacheKey, MAX_CACHED_LOGINS, MIN_ACCESS_KEY_LENGTH, type CloudHandler } from '../../src/http/handler.js';
 import { accountKey, createSharedQuota, MissingSharedQuota, UpstashQuota } from '../../src/quota.js';
 import { setRuntime } from '../../src/runtime.js';
 import { AuditLog } from '../../src/audit.js';
-import { ACCESS_KEY, cloudEnv, connectCloud, ENDPOINT, FakeUpstash, resultText } from '../helpers/cloud.js';
+import { ACCESS_KEY, cloudEnv, connectCloud, ENDPOINT, FakeUpstash, resultText, vercelEnv } from '../helpers/cloud.js';
 
 afterAll(() => setRuntime('local'));
 
@@ -26,7 +26,7 @@ describe('checkAccess', () => {
     expect(checkAccess(req(ENDPOINT, { headers: { authorization: `Basic ${ACCESS_KEY}` } }), ACCESS_KEY)).toBe('unauthorized');
   });
 
-  it('refuses everything when MCP_ACCESS_KEY is missing or shorter than 32 characters', () => {
+  it('refuses everything when the account\'s access key is missing or shorter than 32 characters', () => {
     const short = 'k'.repeat(MIN_ACCESS_KEY_LENGTH - 1);
     expect(checkAccess(req(`${ENDPOINT}?key=${short}`), short)).toBe('misconfigured');
     expect(checkAccess(req(`${ENDPOINT}?key=`), undefined)).toBe('misconfigured');
@@ -34,20 +34,50 @@ describe('checkAccess', () => {
   });
 });
 
-describe('loginFromRequest', () => {
-  it('takes both headers or nothing, and reports a partial set', () => {
-    const full = loginFromRequest(req(ENDPOINT, { headers: { 'X-ICloud-Email': ' a@icloud.com ', 'X-ICloud-Password': 'abcd-efgh-ijkl-mnop', 'X-ICloud-From': 'me@example.com' } }));
-    expect(full).toEqual({ login: { email: 'a@icloud.com', password: 'abcd-efgh-ijkl-mnop', from: 'me@example.com' }, partial: false });
-    expect(loginFromRequest(req(ENDPOINT))).toEqual({ login: null, partial: false });
-    expect(loginFromRequest(req(ENDPOINT, { headers: { 'X-ICloud-Email': 'a@icloud.com' } }))).toEqual({ login: null, partial: true });
-    expect(loginFromRequest(req(ENDPOINT, { headers: { 'X-ICloud-Password': 'pw' } }))).toEqual({ login: null, partial: true });
+describe('account routes', () => {
+  it('takes the account from /api/gmail/<account>, letters and digits only, case-insensitive', () => {
+    expect(accountFromRequest(req('https://x.test/api/gmail/personal'))).toBe('personal');
+    expect(accountFromRequest(req('https://x.test/api/gmail/Work2/?key=k'))).toBe('work2');
+    for (const bad of ['/api/gmail/', '/api/gmail/work_mail', '/api/gmail/a/b', '/api/gmail/..', '/api/gmail/a%2Fb', '/api/other/personal', '/api/gmail/' + 'a'.repeat(33)]) {
+      expect(accountFromRequest(req(`https://x.test${bad}`))).toBeNull();
+    }
   });
 
-  it('keys the login cache by a hash, never the raw values', () => {
-    const k = loginCacheKey(['header', 'a@icloud.com', 'secret-password']);
+  it("maps only this account's GMAIL_<ACCOUNT>_* variables, never another account's or a global login", () => {
+    const env = accountEnv(
+      {
+        GMAIL_EMAIL: 'global@gmail.com',
+        GMAIL_PASSWORD: 'global-pw',
+        MAIL_FROM_ADDRESS: 'global-from@gmail.com',
+        MAIL_TIMEZONE: 'America/New_York',
+        MAIL_READ_ONLY: 'false',
+        GMAIL_HOME_EMAIL: 'home@gmail.com',
+        GMAIL_HOME_PASSWORD: 'home-pw',
+        GMAIL_HOME_ACCESS_KEY: 'k'.repeat(40),
+        GMAIL_HOME_FROM_NAME: 'Home',
+        GMAIL_HOME_MAIL_READ_ONLY: 'true',
+        GMAIL_HOME_MAIL_ACCOUNT_NAME: 'spoofed',
+        GMAIL_WORK_EMAIL: 'work@example.com',
+        GMAIL_WORK_PASSWORD: 'work-pw',
+        GMAIL_WORK_ACCESS_KEY: 'w'.repeat(40),
+      },
+      'home',
+    );
+    expect(env).toEqual({
+      MAIL_TIMEZONE: 'America/New_York',
+      MAIL_READ_ONLY: 'true',
+      GMAIL_EMAIL: 'home@gmail.com',
+      GMAIL_PASSWORD: 'home-pw',
+      MAIL_FROM_NAME: 'Home',
+      MAIL_ACCOUNT_NAME: 'home',
+    });
+  });
+
+  it('keys the service cache by a hash, never the raw values', () => {
+    const k = loginCacheKey(['GMAIL_EMAIL', 'a@gmail.com', 'GMAIL_PASSWORD', 'secret-password']);
     expect(k).toMatch(/^[0-9a-f]{64}$/);
     expect(k).not.toContain('secret');
-    expect(loginCacheKey(['header', 'a@icloud.com', 'other'])).not.toBe(k);
+    expect(loginCacheKey(['GMAIL_EMAIL', 'a@gmail.com', 'GMAIL_PASSWORD', 'other'])).not.toBe(k);
   });
 });
 
@@ -79,12 +109,17 @@ describe('cloud configuration', () => {
     expect(load(cloudEnv({ MAIL_RATE_LIMIT_STORE: 'redis' })).errors.join(' ')).toMatch(/MAIL_RATE_LIMIT_STORE/);
   });
 
-  it('explains how to log in when neither headers nor env provide one', () => {
+  it('explains which per-account variables to set when the account has no login', () => {
     const noEmail = load(cloudEnv({ GMAIL_EMAIL: undefined, GMAIL_PASSWORD: undefined }));
     expect(noEmail.errors).toHaveLength(1);
-    expect(noEmail.errors[0]).toMatch(/X-ICloud-Email.*X-ICloud-Password.*GMAIL_EMAIL and GMAIL_PASSWORD/);
+    expect(noEmail.errors[0]).toMatch(/GMAIL_<ACCOUNT>_EMAIL.*GMAIL_<ACCOUNT>_PASSWORD.*apppasswords/);
     const noPassword = load(cloudEnv({ GMAIL_PASSWORD: undefined }));
-    expect(noPassword.errors[0]).toMatch(/No iCloud login/);
+    expect(noPassword.errors[0]).toMatch(/No Gmail login/);
+  });
+
+  it('carries the account name for get_account_info, only in the cloud', () => {
+    expect(load(cloudEnv({ MAIL_ACCOUNT_NAME: 'home' })).config.accountName).toBe('home');
+    expect(loadConfig({ GMAIL_EMAIL: 'a@gmail.com', MAIL_ACCOUNT_NAME: 'home' }, { runtime: 'local', platform: 'linux', home: '/h' }).config.accountName).toBeUndefined();
   });
 
   it('refuses the Mac confirmation dialog and ignores disk settings with a warning', () => {
@@ -99,7 +134,7 @@ describe('cloud configuration', () => {
   });
 
   it('locally, refuses MAIL_AUDIT_LOG=stdout (stdout carries the MCP protocol) but accepts stderr', () => {
-    const local = (v: string) => loadConfig({ GMAIL_EMAIL: 'a@icloud.com', MAIL_AUDIT_LOG: v }, { runtime: 'local', platform: 'linux', home: '/h' });
+    const local = (v: string) => loadConfig({ GMAIL_EMAIL: 'a@gmail.com', MAIL_AUDIT_LOG: v }, { runtime: 'local', platform: 'linux', home: '/h' });
     expect(local('stdout').errors.join(' ')).toMatch(/only available in the cloud/);
     expect(local('stderr').config.auditLog).toBe('stderr');
     expect(local('stderr').config.quotaStore).toEqual({ kind: 'none' });
@@ -109,7 +144,7 @@ describe('cloud configuration', () => {
 describe('UpstashQuota', () => {
   const HOUR = 3_600_000;
   const make = (fake: FakeUpstash, opts: Partial<ConstructorParameters<typeof UpstashQuota>[0]> = {}, now = () => 10 * HOUR) =>
-    new UpstashQuota({ url: 'https://upstash.test', token: 'tok', email: 'Seth@iCloud.com', maxSendsPerHour: 3, maxRecipientsPerHour: 10, maxRecipientsPerDay: 20, fetch: fake.fetch, now, ...opts });
+    new UpstashQuota({ url: 'https://upstash.test', token: 'tok', email: 'Seth@Gmail.com', maxSendsPerHour: 3, maxRecipientsPerHour: 10, maxRecipientsPerDay: 20, fetch: fake.fetch, now, ...opts });
 
   it('counts sends and recipients, refuses beyond a limit and rolls the refused attempt back', async () => {
     const fake = new FakeUpstash();
@@ -157,8 +192,8 @@ describe('UpstashQuota', () => {
     expect(fake.requests[0]?.url).toBe('https://upstash.test/pipeline');
     expect(fake.requests[0]?.authorization).toBe('Bearer tok');
     const keys = [...fake.data.keys()];
-    expect(keys.every((k) => k.includes(accountKey('seth@icloud.com')))).toBe(true);
-    expect(keys.map((k) => k.replace(/^gmail-mail:v1:/, '')).join(' ')).not.toMatch(/seth|icloud/i);
+    expect(keys.every((k) => k.includes(accountKey('seth@gmail.com')))).toBe(true);
+    expect(keys.map((k) => k.replace(/^gmail-mail:v1:/, '')).join(' ')).not.toMatch(/seth|gmail/i);
   });
 
   it('fails closed when Upstash is unreachable or refuses the token', async () => {
@@ -206,33 +241,46 @@ describe('cloud HTTP handler (no mail server)', () => {
     handler = undefined;
   });
 
-  it('answers 503 without a usable MCP_ACCESS_KEY, 401 for a wrong one, 405 for GET', async () => {
-    handler = createCloudHandler({ env: cloudEnv({ MCP_ACCESS_KEY: 'too-short' }) });
-    const r = await handler(req(`${ENDPOINT}?key=too-short`, { body: '{}' }));
-    expect(r.status).toBe(503);
-    expect(await r.text()).toMatch(/MCP_ACCESS_KEY must be set/);
+  it('answers 404 for unknown accounts, accounts without a usable key and wrong keys, 405 for GET', async () => {
+    const logged: string[] = [];
+    const logger = { error: (...a: unknown[]) => logged.push(JSON.stringify(a)), warn: () => undefined, info: () => undefined, debug: () => undefined } as never;
+    handler = createCloudHandler({ env: vercelEnv({ GMAIL_TEST_ACCESS_KEY: 'too-short' }), logger });
+    const short = await handler(req(`${ENDPOINT}?key=too-short`, { body: '{}' }));
+    expect(short.status).toBe(404);
+    expect(await short.json()).toEqual({ error: 'not found' });
+    expect(logged.join(' ')).toMatch(/GMAIL_TEST_ACCESS_KEY is missing or shorter than 32/);
     await handler.close();
-    handler = createCloudHandler({ env: cloudEnv() });
+    handler = createCloudHandler({ env: vercelEnv() });
+    expect((await handler(req(`https://gmail-mail.test/api/gmail/nobody?key=${ACCESS_KEY}`, { body: '{}' }))).status).toBe(404);
+    expect((await handler(req(`https://gmail-mail.test/api/other?key=${ACCESS_KEY}`, { body: '{}' }))).status).toBe(404);
     const wrong = await handler(req(`${ENDPOINT}?key=nope`, { body: '{}' }));
-    expect(wrong.status).toBe(401);
-    expect(await wrong.json()).toEqual({ error: 'unauthorized' });
+    expect(wrong.status).toBe(404);
+    expect(await wrong.json()).toEqual({ error: 'not found' });
     expect((await handler(new Request(`${ENDPOINT}?key=${ACCESS_KEY}`))).status).toBe(405);
   });
 
-  it('never lets login headers stand in for the access key', async () => {
-    handler = createCloudHandler({ env: cloudEnv() });
-    const r = await handler(req(ENDPOINT, { headers: { 'x-icloud-email': 'a@icloud.com', 'x-icloud-password': 'pw' }, body: '{}' }));
-    expect(r.status).toBe(401);
+  it("never lets one account's key open another account", async () => {
+    const otherKey = 'other-account-key-0123456789abcdefghijklmnop';
+    handler = createCloudHandler({ env: vercelEnv({ GMAIL_HOME_EMAIL: 'home@gmail.com', GMAIL_HOME_PASSWORD: 'pw', GMAIL_HOME_ACCESS_KEY: otherKey }) });
+    expect((await handler(req(`https://gmail-mail.test/api/gmail/home?key=${ACCESS_KEY}`, { body: '{}' }))).status).toBe(404);
+    expect((await handler(req(`${ENDPOINT}?key=${otherKey}`, { body: '{}' }))).status).toBe(404);
+    const home = await connectCloud(handler, { key: otherKey, endpoint: 'https://gmail-mail.test/api/gmail/home' });
+    const info = resultText(await home.client.callTool({ name: 'get_account_info', arguments: {} }));
+    expect(info).toMatch(/"account":"home"/);
+    expect(info).toMatch(/home@gmail\.com/);
+    expect(info).not.toMatch(/testuser@/);
+    await home.close();
   });
 
   it('serves MCP over HTTP (key in the URL or as Bearer) with the cloud tool surface', async () => {
-    handler = createCloudHandler({ env: cloudEnv() });
+    handler = createCloudHandler({ env: vercelEnv() });
     for (const bearer of [false, true]) {
       const { client, close } = await connectCloud(handler, { bearer });
       const { tools } = await client.listTools();
       const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
       expect(Object.keys(byName)).toContain('send_email');
       expect(Object.keys(byName)).toContain('save_draft');
+      expect(Object.keys(byName)).toContain('label_messages');
       for (const name of ['send_email', 'reply_to_message', 'save_draft']) {
         expect(Object.keys((byName[name]?.inputSchema as { properties: object }).properties)).not.toContain('attachments');
         expect(byName[name]?.description).toMatch(/link from another connector/);
@@ -245,43 +293,54 @@ describe('cloud HTTP handler (no mail server)', () => {
     }
   });
 
-  it('tells a caller without any login which headers or env vars to add', async () => {
-    handler = createCloudHandler({ env: cloudEnv({ GMAIL_EMAIL: undefined, GMAIL_PASSWORD: undefined }) });
+  it('applies GMAIL_<ACCOUNT>_MAIL_* settings to that account only', async () => {
+    handler = createCloudHandler({ env: vercelEnv({ GMAIL_TEST_MAIL_READ_ONLY: 'true' }) });
+    const { client, close } = await connectCloud(handler);
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain('search_messages');
+    expect(names).not.toContain('label_messages');
+    expect(names).not.toContain('send_email');
+    await close();
+  });
+
+  it('tells the owner which per-account variables to set when the account has a key but no login', async () => {
+    handler = createCloudHandler({ env: vercelEnv({ GMAIL_TEST_EMAIL: undefined, GMAIL_TEST_PASSWORD: undefined }) });
     const { client, close } = await connectCloud(handler);
     const r = await client.callTool({ name: 'search_messages', arguments: {} });
     expect(r.isError).toBe(true);
-    expect(resultText(r)).toMatch(/X-ICloud-Email.*X-ICloud-Password/);
+    expect(resultText(r)).toMatch(/GMAIL_<ACCOUNT>_EMAIL/);
     await close();
-    const partial = await connectCloud(handler, { headers: { 'X-ICloud-Email': 'a@icloud.com' } });
-    expect(resultText(await partial.client.callTool({ name: 'list_mailboxes', arguments: {} }))).toMatch(/Incomplete login headers/);
-    await partial.close();
   });
 
-  it('never returns or logs the password, and keeps one cached login per distinct credential set', async () => {
+  it('never returns or logs the password or the access key', async () => {
     const logged: string[] = [];
-    const logger = { error: (...a: unknown[]) => logged.push(JSON.stringify(a)), warn: (...a: unknown[]) => logged.push(JSON.stringify(a)), info: () => undefined, debug: () => undefined } as never;
-    // Nothing listens on port 9: the login attempt fails fast with a connection error.
-    handler = createCloudHandler({ env: cloudEnv({ IMAP_PORT: '9', MAIL_LOG_LEVEL: 'debug' }), logger });
+    const logger = { error: (...a: unknown[]) => logged.push(JSON.stringify(a)), warn: (...a: unknown[]) => logged.push(JSON.stringify(a)), info: (...a: unknown[]) => logged.push(JSON.stringify(a)), debug: () => undefined } as never;
     const password = 'zzqx-secret-pw-9431';
-    const a = await connectCloud(handler, { headers: { 'X-ICloud-Email': 'someone@icloud.com', 'X-ICloud-Password': password } });
+    // Nothing listens on port 9: the login attempt fails fast with a connection error.
+    handler = createCloudHandler({ env: vercelEnv({ IMAP_PORT: '9', MAIL_LOG_LEVEL: 'debug', GMAIL_TEST_PASSWORD: password }), logger });
+    const a = await connectCloud(handler);
     const search = await a.client.callTool({ name: 'search_messages', arguments: {} });
     expect(search.isError).toBe(true);
     const info = await a.client.callTool({ name: 'get_account_info', arguments: {} });
-    expect(resultText(info)).toMatch(/X-ICloud-Password connector header/);
-    expect(resultText(info)).not.toContain('testuser@icloud.test'); // the env login's identity is not inherited
-    for (const text of [resultText(search), resultText(info), ...logged]) expect(text).not.toContain(password);
+    expect(resultText(info)).toMatch(/GMAIL_TEST_PASSWORD environment variable/);
+    for (const text of [resultText(search), resultText(info), ...logged]) {
+      expect(text).not.toContain(password);
+      expect(text).not.toContain(ACCESS_KEY);
+    }
     await a.close();
     expect(handler.cachedLogins).toBe(1);
-    const b = await connectCloud(handler); // env login
-    await b.client.listTools();
-    await b.close();
-    expect(handler.cachedLogins).toBe(2);
   });
 
-  it('closes the least recently used login beyond the cache limit', async () => {
-    handler = createCloudHandler({ env: cloudEnv() });
+  it('closes the least recently used account beyond the cache limit', async () => {
+    const extra: Record<string, string> = {};
     for (let i = 0; i <= MAX_CACHED_LOGINS; i++) {
-      const c = await connectCloud(handler, { headers: { 'X-ICloud-Email': `u${i}@icloud.com`, 'X-ICloud-Password': `pw-${i}` } });
+      extra[`GMAIL_U${i}_EMAIL`] = `u${i}@gmail.com`;
+      extra[`GMAIL_U${i}_PASSWORD`] = `pw-${i}`;
+      extra[`GMAIL_U${i}_ACCESS_KEY`] = ACCESS_KEY;
+    }
+    handler = createCloudHandler({ env: vercelEnv(extra) });
+    for (let i = 0; i <= MAX_CACHED_LOGINS; i++) {
+      const c = await connectCloud(handler, { endpoint: `https://gmail-mail.test/api/gmail/u${i}` });
       await c.close();
     }
     expect(handler.cachedLogins).toBe(MAX_CACHED_LOGINS);

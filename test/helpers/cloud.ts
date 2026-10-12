@@ -8,7 +8,9 @@ import type { FetchFn } from '../../src/quota.js';
 import { ACCOUNT, CA_FILE, PASSWORD } from './infra.js';
 
 export const ACCESS_KEY = 'test-access-key-0123456789abcdefghijklmnopqrstuvwxyz';
-export const ENDPOINT = 'https://icloud-mail.test/api/icloud-mail';
+/** The account name the cloud tests use, and its connector URL. */
+export const TEST_ACCOUNT = 'test';
+export const ENDPOINT = `https://gmail-mail.test/api/gmail/${TEST_ACCOUNT}`;
 
 /** INCRBY / DECRBY / GET / PEXPIRE over a Map, answering like POST {url}/pipeline does. */
 export class FakeUpstash {
@@ -54,10 +56,12 @@ export class FakeUpstash {
   }
 }
 
-/** Vercel-style env for the cloud handler against the local test-infra servers. */
+/**
+ * The env one account's MailService sees in the cloud (what accountEnv() produces from the Vercel
+ * env), against the local test-infra servers. For loadConfig/MailService tests.
+ */
 export function cloudEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
-    MCP_ACCESS_KEY: ACCESS_KEY,
     GMAIL_EMAIL: ACCOUNT,
     GMAIL_PASSWORD: PASSWORD,
     IMAP_HOST: '127.0.0.1',
@@ -82,13 +86,41 @@ export function cloudEnv(overrides: Record<string, string | undefined> = {}): No
   return env;
 }
 
+/** Service settings that are per account in the Vercel env (GMAIL_<ACCOUNT>_<suffix>). */
+const PER_ACCOUNT: Readonly<Record<string, string>> = {
+  GMAIL_EMAIL: 'EMAIL',
+  GMAIL_PASSWORD: 'PASSWORD',
+  MAIL_ALLOWED_FROM: 'ALLOWED_FROM',
+  MAIL_FROM_NAME: 'FROM_NAME',
+};
+
+/**
+ * The Vercel project env for the cloud handler: cloudEnv()'s identity settings moved to
+ * GMAIL_<ACCOUNT>_* for `account`, plus that account's access key. Overrides apply last, to the
+ * Vercel-level names (e.g. { GMAIL_TEST_PASSWORD: undefined }).
+ */
+export function vercelEnv(overrides: Record<string, string | undefined> = {}, account = TEST_ACCOUNT): NodeJS.ProcessEnv {
+  const prefix = `GMAIL_${account.toUpperCase()}_`;
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(cloudEnv())) {
+    const suffix = PER_ACCOUNT[k];
+    env[suffix ? `${prefix}${suffix}` : k] = v;
+  }
+  env[`${prefix}ACCESS_KEY`] = ACCESS_KEY;
+  for (const [k, v] of Object.entries(overrides)) {
+    if (v === undefined) delete env[k];
+    else env[k] = v;
+  }
+  return env;
+}
+
 /** An MCP client whose HTTP requests go straight into `handler`. */
 export async function connectCloud(
   handler: CloudHandler,
-  options: { key?: string | null; headers?: Record<string, string>; bearer?: boolean } = {},
+  options: { key?: string | null; headers?: Record<string, string>; bearer?: boolean; endpoint?: string } = {},
 ): Promise<{ client: Client; close: () => Promise<void> }> {
   const key = options.key === undefined ? ACCESS_KEY : options.key;
-  const url = new URL(ENDPOINT);
+  const url = new URL(options.endpoint ?? ENDPOINT);
   const headers: Record<string, string> = { ...options.headers };
   if (key !== null && options.bearer) headers['authorization'] = `Bearer ${key}`;
   else if (key !== null) url.searchParams.set('key', key);
@@ -96,7 +128,7 @@ export async function connectCloud(
     requestInit: { headers },
     fetch: async (input: string | URL | Request, init?: RequestInit) => handler(new Request(input, init)),
   });
-  const client = new Client({ name: 'icloud-mail-cloud-test', version: '1.0.0' });
+  const client = new Client({ name: 'gmail-mail-cloud-test', version: '1.0.0' });
   await client.connect(transport);
   return { client, close: () => client.close() };
 }

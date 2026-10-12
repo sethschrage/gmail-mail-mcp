@@ -75,6 +75,31 @@ export function decodeModifiedUtf7(text: string): string {
   });
 }
 
+/**
+ * The X-GM-LABELS value a message necessarily has because it is in `mailboxPath`, or null for
+ * folders that are not labels (All Mail, Sent Mail, Drafts, Spam, Trash). Gmail may leave the
+ * selected folder's own label out of X-GM-LABELS, so it is added back wherever labels are read.
+ */
+export function implicitLabelOf(mailboxPath: string): string | null {
+  if (mailboxPath.toUpperCase() === 'INBOX') return '\\Inbox';
+  const system = /^\[(gmail|google mail)\]\/(.+)$/i.exec(mailboxPath);
+  if (system) {
+    const name = (system[2] ?? '').toLowerCase();
+    if (name === 'starred') return '\\Starred';
+    if (name === 'important') return '\\Important';
+    return null;
+  }
+  return encodeModifiedUtf7(mailboxPath);
+}
+
+/** The message's labels plus the selected folder's own label (see implicitLabelOf). */
+export function withImplicitLabel(labels: Set<string> | undefined, mailboxPath: string): Set<string> | undefined {
+  if (!labels) return labels;
+  const implicit = implicitLabelOf(mailboxPath);
+  if (!implicit || [...labels].some((l) => l.toLowerCase() === implicit.toLowerCase())) return labels;
+  return new Set([...labels, implicit]);
+}
+
 /** A label as shown to Claude: system labels without the backslash ("Inbox", "Important"), user labels decoded. */
 export function displayLabel(raw: string): string {
   if (raw.startsWith('\\')) return raw.slice(1);
@@ -121,7 +146,10 @@ export interface LabelRequest {
 
 export interface LabelResult {
   mailbox: string;
+  /** Messages found in the mailbox (the change was applied to all of them). */
   affected: number;
+  /** Messages whose labels actually changed (an added label was missing or a removed one was set). */
+  changed: number;
   not_found: number[];
   added: string[];
   removed: string[];
@@ -166,22 +194,25 @@ export async function labelMessages(imap: ImapManager, mailbox: MailboxInfo, uid
     mailbox.path,
     async (client) => {
       const { found, notFound } = await verifyUids(client, uids);
-      const base: LabelResult = { mailbox: mailbox.path, affected: found.length, not_found: notFound, added: add.map((t) => t.name), removed: remove.map((t) => t.name), not_applied: [] };
+      const base: LabelResult = { mailbox: mailbox.path, affected: found.length, changed: 0, not_found: notFound, added: add.map((t) => t.name), removed: remove.map((t) => t.name), not_applied: [] };
       if (found.length === 0) return base;
+      const has = (labels: Set<string> | undefined, t: LabelToken): boolean => [...(labels ?? [])].some((l) => l.toLowerCase() === t.reported.toLowerCase());
+      const before = await client.fetchAll(toSequenceSet(found), { uid: true, labels: true }, { uid: true });
+      const labelsBefore = (m: (typeof before)[number]): Set<string> | undefined => withImplicitLabel(m.labels, mailbox.path);
+      base.changed = before.filter((m) => add.some((t) => !has(labelsBefore(m), t)) || remove.some((t) => has(labelsBefore(m), t))).length;
       await storeLabels(client, found, '+', add);
       await storeLabels(client, found, '-', remove);
       const after = await client.fetchAll(toSequenceSet(found), { uid: true, labels: true }, { uid: true });
       const seen = new Set(after.map((m) => m.uid));
       const leftMailbox = found.filter((u) => !seen.has(u));
-      const has = (labels: Set<string> | undefined, t: LabelToken): boolean => [...(labels ?? [])].some((l) => l.toLowerCase() === t.reported.toLowerCase());
       for (const m of after) {
         const reasons: string[] = [];
-        for (const t of add) if (!has(m.labels, t)) reasons.push(`"${t.name}" was not added`);
+        for (const t of add) if (!has(withImplicitLabel(m.labels, mailbox.path), t)) reasons.push(`"${t.name}" was not added`);
         for (const t of remove) if (has(m.labels, t)) reasons.push(`"${t.name}" is still set`);
         if (reasons.length) base.not_applied.push({ uid: m.uid, reason: reasons.join('; ') });
       }
       if (after.length <= LABEL_DETAIL_MAX) {
-        base.messages = after.map((m) => ({ uid: m.uid, labels: displayLabels(m.labels) })).sort((a, b) => a.uid - b.uid);
+        base.messages = after.map((m) => ({ uid: m.uid, labels: displayLabels(withImplicitLabel(m.labels, mailbox.path)) })).sort((a, b) => a.uid - b.uid);
       }
       if (leftMailbox.length) {
         base.left_mailbox = leftMailbox;

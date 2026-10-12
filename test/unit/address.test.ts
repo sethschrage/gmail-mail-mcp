@@ -45,7 +45,7 @@ describe('parsing recipient strings', () => {
     // nodemailer itself would turn this into a group and silently send only to evil1@example.com:
     const nodemailerView = addressparser('victim@example.com\r\nBcc: evil1@example.com');
     expect(JSON.stringify(nodemailerView)).toContain('evil1@example.com');
-    const envelope = new MailComposer({ from: 'me@icloud.com', to: 'victim@example.com\r\nBcc: evil1@example.com' }).compile().getEnvelope();
+    const envelope = new MailComposer({ from: 'me@gmail.com', to: 'victim@example.com\r\nBcc: evil1@example.com' }).compile().getEnvelope();
     expect(envelope.to).toEqual(['evil1@example.com']);
     // ours refuses it outright
     expect(code(() => parseAddressString('victim@example.com\r\nBcc: evil1@example.com', 'to'))).toBe('INVALID_INPUT');

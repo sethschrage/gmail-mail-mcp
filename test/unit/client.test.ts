@@ -111,61 +111,63 @@ function manager(env: Record<string, string>, behaviour: { failAuthFor?: string[
 }
 
 describe('login candidates', () => {
-  it('tries the full address, then the local part for icloud.com/me.com/mac.com only', () => {
-    expect(imapLoginCandidates('john@icloud.com', undefined)).toEqual(['john@icloud.com', 'john']);
-    expect(imapLoginCandidates('john@ME.com', undefined)).toEqual(['john@ME.com', 'john']);
-    expect(imapLoginCandidates('john@mac.com', undefined)).toEqual(['john@mac.com', 'john']);
-    expect(imapLoginCandidates('john@custom.dev', undefined)).toEqual(['john@custom.dev']);
-    expect(imapLoginCandidates('john@icloud.com', 'override@icloud.com')).toEqual(['override@icloud.com']);
+  it('uses the full address (no local-part fallback), or the override alone', () => {
+    expect(imapLoginCandidates('john@gmail.com', undefined)).toEqual(['john@gmail.com']);
+    expect(imapLoginCandidates('john@googlemail.com', undefined)).toEqual(['john@googlemail.com']);
+    expect(imapLoginCandidates('john@company.dev', undefined)).toEqual(['john@company.dev']);
+    // The local-part fallback was iCloud-only: an old @icloud.com address gets no second try either.
+    expect(imapLoginCandidates('john@gmail.com', undefined)).toEqual(['john@gmail.com']);
+    expect(imapLoginCandidates('john@gmail.com', 'override@company.dev')).toEqual(['override@company.dev']);
     expect(imapLoginCandidates('', undefined)).toEqual([]);
   });
 });
 
 describe('ImapManager', () => {
   it('connects lazily with a non-stdout logger, TLS >= 1.2 and disables WITHIN', async () => {
-    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@gmail.com' });
     expect(created).toHaveLength(0);
     const client = await m.connection();
     expect(created).toHaveLength(1);
     const opts = created[0] as ImapFlowOptions;
     expect(opts.logger).toBeTypeOf('object');
     expect(opts.logger).not.toBeUndefined();
-    expect(opts.host).toBe('imap.mail.me.com');
+    expect(opts.host).toBe('imap.gmail.com');
     expect(opts.port).toBe(993);
     expect(opts.secure).toBe(true);
     expect(opts.tls?.minVersion).toBe('TLSv1.2');
     expect(client.capabilities.has('WITHIN')).toBe(false);
-    expect(m.effectiveUser).toBe('john@icloud.com');
+    expect(m.effectiveUser).toBe('john@gmail.com');
   });
 
-  it('falls back to the local part after an auth failure and remembers it', async () => {
-    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' }, { failAuthFor: ['john@icloud.com'] });
-    await m.connection();
-    expect(created.map((o) => o.auth?.user)).toEqual(['john@icloud.com', 'john']);
-    expect(m.effectiveUser).toBe('john');
-    (FakeImap.instances[1] as FakeImap).kill();
-    await m.connection();
-    expect(created.map((o) => o.auth?.user)).toEqual(['john@icloud.com', 'john', 'john']);
-  });
-
-  it('does not retry with the local part for custom domains, and invalidates cached credentials', async () => {
-    const { m, created, invalidations } = manager({ GMAIL_EMAIL: 'me@custom.dev' }, { failAuthFor: ['me@custom.dev'] });
+  it('tries only the full address and invalidates cached credentials on an auth failure', async () => {
+    const { m, created, invalidations } = manager({ GMAIL_EMAIL: 'me@company.dev' }, { failAuthFor: ['me@company.dev'] });
     const err = await m.connection().then(
       () => null,
       (e: unknown) => e as MailError,
     );
     expect(err).toBeInstanceOf(MailError);
     expect(err?.code).toBe('AUTH');
-    expect(err?.message).toContain('"me@custom.dev"');
-    expect(err?.message).toMatch(/custom-domain users: enter your primary @icloud\.com address as "iCloud email address"/);
+    expect(err?.message).toContain('Gmail IMAP (imap.gmail.com:993) rejected the login for "me@company.dev"');
+    expect(err?.message).toContain('the login must be the full Gmail or Google Workspace address ("Gmail address" in the extension settings)');
+    expect(err?.message).not.toContain(' and "');
     expect(created).toHaveLength(1);
     expect(invalidations()).toBe(1);
   });
 
-  it('reports both logins when the fallback also fails', async () => {
-    const { m } = manager({ GMAIL_EMAIL: 'john@icloud.com' }, { failAuthFor: ['john@icloud.com', 'john'] });
+  it('remembers the working login across reconnects', async () => {
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@gmail.com' });
+    await m.connection();
+    expect(m.effectiveUser).toBe('john@gmail.com');
+    (FakeImap.instances[0] as FakeImap).kill();
+    await m.connection();
+    expect(created.map((o) => o.auth?.user)).toEqual(['john@gmail.com', 'john@gmail.com']);
+  });
+
+  it('logs in with GMAIL_IMAP_USER when set, and names it in the auth failure', async () => {
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@gmail.com', GMAIL_IMAP_USER: 'other@company.dev' }, { failAuthFor: ['other@company.dev'] });
     const err = await m.connection().catch((e: unknown) => e as MailError);
-    expect((err as MailError).message).toContain('"john@icloud.com" and "john"');
+    expect(created.map((o) => o.auth?.user)).toEqual(['other@company.dev']);
+    expect((err as MailError).message).toContain('rejected the login for "other@company.dev"');
   });
 
   it('shares one in-flight connect between concurrent callers', async () => {
@@ -281,7 +283,7 @@ describe('ImapManager', () => {
 
   it('maps connection failures to friendly errors', async () => {
     const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' }, { failConnect: Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:993'), { code: 'ECONNREFUSED' }) });
-    await expect(m.connection()).rejects.toMatchObject({ code: 'CONNECTION', message: expect.stringMatching(/Could not talk to the IMAP server imap\.mail\.me\.com:993 \(ECONNREFUSED\)/) as string });
+    await expect(m.connection()).rejects.toMatchObject({ code: 'CONNECTION', message: expect.stringMatching(/Could not talk to the IMAP server imap\.gmail\.com:993 \(ECONNREFUSED\)\. Check the internet connection; Gmail may also be temporarily unavailable/) as string });
   });
 
   it('trusts the extra CA from MAIL_TLS_CA_FILE in addition to the system roots', () => {
@@ -300,7 +302,7 @@ describe('ImapManager', () => {
 describe('stuck connections', () => {
   // imap-4: a lock wait that times out means the holder is stuck: reset and retry once, even for writes.
   it('replaces the connection after a mailbox lock timeout and retries once', async () => {
-    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@gmail.com' });
     FakeImap.lockErrors = [Object.assign(new Error('lock wait timed out'), { code: 'LockTimeout' })];
     const r = await m.withMailbox('INBOX', async () => 'ok', { readOnly: false, retry: false });
     expect(r).toBe('ok');
@@ -309,7 +311,7 @@ describe('stuck connections', () => {
   });
 
   it('gives up with a CONNECTION error when the lock also times out on the new connection', async () => {
-    const { m } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
+    const { m } = manager({ GMAIL_EMAIL: 'john@gmail.com' });
     const lockErr = (): Error => Object.assign(new Error('lock wait timed out'), { code: 'LockTimeout' });
     FakeImap.lockErrors = [lockErr(), lockErr()];
     const e = await m.withMailbox('INBOX', async () => 'ok', { readOnly: true }).catch((err: unknown) => err as MailError);
@@ -322,7 +324,7 @@ describe('stuck connections', () => {
 describe('connection options', () => {
   // imap-9: no ENABLE CONDSTORE / UTF8=ACCEPT after login.
   it('disables imapflow\'s auto-ENABLE and QRESYNC', async () => {
-    const { m, created } = manager({ GMAIL_EMAIL: 'john@icloud.com' });
+    const { m, created } = manager({ GMAIL_EMAIL: 'john@gmail.com' });
     await m.connection();
     expect(created[0]?.disableAutoEnable).toBe(true);
     expect(created[0]?.qresync).toBe(false);
@@ -330,13 +332,13 @@ describe('connection options', () => {
 
   // tls-1: without implicit TLS, STARTTLS is mandatory unless the test-only switch is set.
   it('requires STARTTLS when IMAP_SECURE=false', async () => {
-    const a = manager({ GMAIL_EMAIL: 'john@icloud.com', IMAP_SECURE: 'false' });
+    const a = manager({ GMAIL_EMAIL: 'john@gmail.com', IMAP_SECURE: 'false' });
     await a.m.connection();
     expect(a.created[0]?.doSTARTTLS).toBe(true);
-    const b = manager({ GMAIL_EMAIL: 'john@icloud.com', IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true' });
+    const b = manager({ GMAIL_EMAIL: 'john@gmail.com', IMAP_SECURE: 'false', IMAP_ALLOW_PLAINTEXT: 'true' });
     await b.m.connection();
     expect(b.created[0]?.doSTARTTLS).toBeUndefined();
-    const c = manager({ GMAIL_EMAIL: 'john@icloud.com' });
+    const c = manager({ GMAIL_EMAIL: 'john@gmail.com' });
     await c.m.connection();
     expect(c.created[0]?.doSTARTTLS).toBeUndefined();
   });
@@ -353,7 +355,7 @@ describe('login refusal classification', () => {
     const e = mapImapError({ authenticationFailed: true, serverResponseCode: 'UNAVAILABLE', response: '2 NO [UNAVAILABLE] Maximum number of connections' }, { host: 'h', port: 1 });
     expect(e.code).toBe('CONNECTION');
     expect(e.message).toContain('(server said: [UNAVAILABLE] Maximum number of connections)');
-    expect(mapImapError({ authenticationFailed: true }, { host: 'h', port: 1, users: ['a@icloud.com'] }).code).toBe('AUTH');
+    expect(mapImapError({ authenticationFailed: true }, { host: 'h', port: 1, users: ['a@gmail.com'] }).code).toBe('AUTH');
   });
 
   it('quotes the server text without the tag', () => {
@@ -364,7 +366,7 @@ describe('login refusal classification', () => {
 });
 
 describe('mapImapError', () => {
-  const ctx = { host: 'imap.mail.me.com', port: 993, users: ['me@icloud.com'] };
+  const ctx = { host: 'imap.gmail.com', port: 993, users: ['me@gmail.com'] };
   it('recognises auth, TLS, throttling, lock timeouts and connection errors', () => {
     expect(mapImapError(Object.assign(new Error('x'), { authenticationFailed: true }), ctx).code).toBe('AUTH');
     expect(mapImapError(Object.assign(new Error('self-signed certificate'), { code: 'SELF_SIGNED_CERT_IN_CHAIN' }), ctx).message).toMatch(/MAIL_TLS_CA_FILE/);
@@ -393,8 +395,37 @@ describe('Gmail login failures', () => {
   it('explain Google app passwords, not Apple ones', () => {
     const msg = authFailureMessage('IMAP', 'imap.gmail.com', ['me@gmail.com']);
     expect(msg).toContain('Gmail IMAP (imap.gmail.com) rejected the login for "me@gmail.com"');
+    expect(msg).toContain('instead of an app password');
+    expect(msg).toContain('2-Step Verification');
+    expect(msg).toContain('a Workspace admin can turn app passwords off');
     expect(msg).toContain('myaccount.google.com/apppasswords');
-    expect(msg).not.toContain('iCloud');
-    expect(authFailureMessage('IMAP', 'imap.mail.me.com', ['me@icloud.com'])).toContain('iCloud IMAP');
+    expect(msg).not.toMatch(/iCloud|Apple/);
+  });
+
+  it('use the Gmail text whatever the host (a test server too)', () => {
+    const msg = authFailureMessage('IMAP', 'localhost', ['me@example.com'], '[AUTHENTICATIONFAILED] Invalid credentials');
+    expect(msg).toContain('Gmail IMAP (localhost) rejected the login for "me@example.com" (server said: [AUTHENTICATIONFAILED] Invalid credentials)');
+    expect(msg).not.toMatch(/iCloud|Apple/);
+  });
+
+  it('mention IMAP access only for IMAP', () => {
+    expect(authFailureMessage('IMAP', 'imap.gmail.com', ['me@gmail.com'])).toContain('IMAP access is turned off');
+    const smtp = authFailureMessage('SMTP', 'smtp.gmail.com', ['me@gmail.com']);
+    expect(smtp).toContain('Gmail SMTP (smtp.gmail.com) rejected the login');
+    expect(smtp).not.toContain('IMAP access is turned off');
+  });
+
+  it('name the configured account when no login is known', () => {
+    expect(authFailureMessage('SMTP', 'smtp.gmail.com', [])).toContain('rejected the login for the configured account');
+  });
+});
+
+describe('transient Gmail refusals', () => {
+  it('word throttling and temporary login refusals for Gmail', () => {
+    const ctx = { host: 'imap.gmail.com', port: 993, users: ['me@gmail.com'] };
+    expect(mapImapError(Object.assign(new Error('x'), { code: 'ETHROTTLE' }), ctx).message).toBe('Gmail is throttling IMAP requests; try again in a minute.');
+    const e = mapImapError({ authenticationFailed: true, serverResponseCode: 'UNAVAILABLE', response: 'A1 NO [UNAVAILABLE] Too many connections' }, ctx);
+    expect(e.message).toMatch(/^Gmail IMAP \(imap\.gmail\.com:993\) refused the login for now/);
+    expect(e.message).toContain('Gmail allows 15');
   });
 });

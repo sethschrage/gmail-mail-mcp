@@ -1,13 +1,13 @@
 /**
  * The cloud (Vercel) entry end to end against the local test-infra servers: MCP over HTTP (the
- * client's requests go straight into the handler), env and header logins, inline attachments,
+ * client's requests go straight into the handler), per-account routes and logins, inline attachments,
  * drafts, and sending through the shared send-limit store (an in-memory Upstash stand-in).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CallToolResult } from '@modelcontextprotocol/client';
 import { createCloudHandler, type CloudHandler } from '../../src/http/handler.js';
 import { setRuntime } from '../../src/runtime.js';
-import { cloudEnv, connectCloud, FakeUpstash, resultText } from '../helpers/cloud.js';
+import { ACCESS_KEY, connectCloud, FakeUpstash, resultText, vercelEnv } from '../helpers/cloud.js';
 import { ACCOUNT, PASSWORD, findSidecarByMessageId, listSidecars, rawUidsByMessageId, resetMailServer } from '../helpers/infra.js';
 import { json, leadingJson, toToolCall } from '../helpers/mcp.js';
 
@@ -26,7 +26,7 @@ let session: Session;
 beforeAll(async () => {
   await resetMailServer();
   fake = new FakeUpstash();
-  handler = createCloudHandler({ env: cloudEnv(), serviceDeps: { quotaFetch: fake.fetch } });
+  handler = createCloudHandler({ env: vercelEnv(), serviceDeps: { quotaFetch: fake.fetch } });
   session = await connectCloud(handler);
 });
 
@@ -45,27 +45,38 @@ describe('reading over HTTP', () => {
     expect(found.messages).toHaveLength(5);
   });
 
-  it('works with a login sent in connector headers instead of the env', async () => {
-    const h = createCloudHandler({ env: cloudEnv({ GMAIL_EMAIL: undefined, GMAIL_PASSWORD: undefined }), serviceDeps: { quotaFetch: fake.fetch } });
-    const s = await connectCloud(h, { headers: { 'X-ICloud-Email': ACCOUNT, 'X-ICloud-Password': PASSWORD } });
+  it('serves a second account at its own URL with its own key and login', async () => {
+    const otherKey = 'second-account-key-0123456789abcdefghijklmnop';
+    const h = createCloudHandler({
+      env: vercelEnv({ GMAIL_SECOND_EMAIL: ACCOUNT, GMAIL_SECOND_PASSWORD: PASSWORD, GMAIL_SECOND_ACCESS_KEY: otherKey, GMAIL_SECOND_MAIL_READ_ONLY: 'true' }),
+      serviceDeps: { quotaFetch: fake.fetch },
+    });
+    const s = await connectCloud(h, { key: otherKey, endpoint: 'https://gmail-mail.test/api/gmail/second' });
     const r = await call(s, 'get_message', { mailbox: 'INBOX', uid: 1 });
     expect(r.isError).toBeFalsy();
     expect(resultText(r)).toMatch(/BEGIN UNTRUSTED EMAIL CONTENT/);
     const info = json<Record<string, unknown>>(toToolCall(await call(s, 'get_account_info')));
     expect(info['runtime']).toBe('cloud');
-    expect(info['password_source']).toBe('X-ICloud-Password connector header');
+    expect(info['account']).toBe('second');
+    expect(info['password_source']).toBe('GMAIL_SECOND_PASSWORD environment variable (Vercel)');
+    expect((info['features'] as Record<string, unknown>)['read_only']).toBe(true);
     await s.close();
+    // The first account's key does not open the second account.
+    const refused = await h(new Request(`https://gmail-mail.test/api/gmail/second?key=${ACCESS_KEY}`, { method: 'POST', body: '{}' }));
+    expect(refused.status).toBe(404);
     await h.close();
   });
 
-  it('reports a wrong password with the iCloud guidance, never the password itself', async () => {
-    const s = await connectCloud(handler, { headers: { 'X-ICloud-Email': ACCOUNT, 'X-ICloud-Password': 'wrong-pass-7781' } });
+  it('reports a wrong password with the app-password guidance, never the password itself', async () => {
+    const h = createCloudHandler({ env: vercelEnv({ GMAIL_TEST_PASSWORD: 'wrong-pass-7781' }), serviceDeps: { quotaFetch: fake.fetch } });
+    const s = await connectCloud(h);
     const r = await call(s, 'list_mailboxes');
     expect(r.isError).toBe(true);
-    expect(resultText(r)).toMatch(/app-specific password/);
-    expect(resultText(r)).toMatch(/X-ICloud-Password connector header or set GMAIL_PASSWORD/);
+    expect(resultText(r)).toMatch(/app password/);
+    expect(resultText(r)).toMatch(/GMAIL_<ACCOUNT>_PASSWORD/);
     expect(resultText(r)).not.toContain('wrong-pass-7781');
     await s.close();
+    await h.close();
   });
 });
 
@@ -139,7 +150,7 @@ describe('drafts and sending', () => {
 
   it('enforces the shared hourly limit across handler instances (as two Vercel instances would)', async () => {
     const shared = new FakeUpstash();
-    const env = cloudEnv({ MAIL_MAX_SENDS_PER_HOUR: '1' });
+    const env = vercelEnv({ MAIL_MAX_SENDS_PER_HOUR: '1' });
     const h1 = createCloudHandler({ env, serviceDeps: { quotaFetch: shared.fetch } });
     const h2 = createCloudHandler({ env, serviceDeps: { quotaFetch: shared.fetch } });
     const s1 = await connectCloud(h1);
@@ -154,7 +165,7 @@ describe('drafts and sending', () => {
   });
 
   it('without a configured store, refuses sends with the fix but still saves drafts', async () => {
-    const h = createCloudHandler({ env: cloudEnv({ UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined }) });
+    const h = createCloudHandler({ env: vercelEnv({ UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined }) });
     const s = await connectCloud(h);
     const r = await call(s, 'send_email', { to: ['bob@example.com'], subject: 'No store', body: 'x' });
     expect(r.isError).toBe(true);
@@ -170,7 +181,7 @@ describe('drafts and sending', () => {
       if (String(chunk).startsWith('gmail-mail-audit ')) lines.push(String(chunk));
       return true;
     }) as typeof process.stdout.write);
-    const h = createCloudHandler({ env: cloudEnv({ MAIL_AUDIT_LOG: undefined }), serviceDeps: { quotaFetch: fake.fetch } });
+    const h = createCloudHandler({ env: vercelEnv({ MAIL_AUDIT_LOG: undefined }), serviceDeps: { quotaFetch: fake.fetch } });
     const s = await connectCloud(h);
     try {
       await call(s, 'save_draft', { to: ['bob@example.com'], subject: 'Audited', body: 'secret body text' });

@@ -185,6 +185,8 @@ async function gmailThread(
   tz: string,
   params: { mailbox: MailboxInfo; uid: number; limit: number },
 ): Promise<ThreadResult | null> {
+  // All Mail has no Spam or Trash messages, so a seed there would be missing from its own thread.
+  if (params.mailbox.specialUse === 'trash' || params.mailbox.specialUse === 'junk') return null;
   if (!(await imap.hasCapability('X-GM-EXT-1'))) return null;
   const allMail = (await registry.list()).find(isAllMailbox);
   if (!allMail) return null;

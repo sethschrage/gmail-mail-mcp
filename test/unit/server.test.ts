@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 function service(env: Record<string, string> = {}): MailService {
-  const base = { GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'abcd-efgh-ijkl-mnop', MAIL_AUDIT_LOG: path.join(root, 'audit.jsonl'), IMAP_HOST: '127.0.0.1', IMAP_PORT: '1' };
+  const base = { GMAIL_EMAIL: 'me@gmail.com', GMAIL_APP_PASSWORD: 'abcd-efgh-ijkl-mnop', MAIL_AUDIT_LOG: path.join(root, 'audit.jsonl'), IMAP_HOST: '127.0.0.1', IMAP_PORT: '1' };
   return new MailService(loadConfig({ ...base, ...env }, { platform: 'linux', home: root }), { logger: quiet, platform: 'linux' });
 }
 
@@ -58,16 +58,17 @@ function audit(): Array<Record<string, unknown>> {
 }
 
 describe('tool catalogue', () => {
-  it('has 19 unique tool names in six groups', () => {
-    expect(ALL_TOOL_NAMES).toHaveLength(19);
-    expect(new Set(ALL_TOOL_NAMES).size).toBe(19);
+  it('has 20 unique tool names in six groups, with label_messages right after mark_messages', () => {
+    expect(ALL_TOOL_NAMES).toHaveLength(20);
+    expect(new Set(ALL_TOOL_NAMES).size).toBe(20);
     expect(Object.keys(TOOL_GROUPS)).toEqual(['read', 'attachments', 'mailbox', 'drafts', 'send', 'delete']);
+    expect(TOOL_GROUPS.mailbox).toEqual(['mark_messages', 'label_messages', 'move_messages', 'archive_messages', 'trash_messages', 'create_mailbox', 'rename_mailbox', 'delete_mailbox']);
   });
 
   it.each([
-    [{}, 18],
-    [{ MAIL_ALLOW_PERMANENT_DELETE: 'true' }, 19],
-    [{ MAIL_ALLOW_SEND: 'false' }, 14],
+    [{}, 19],
+    [{ MAIL_ALLOW_PERMANENT_DELETE: 'true' }, 20],
+    [{ MAIL_ALLOW_SEND: 'false' }, 15],
     [{ MAIL_READ_ONLY: 'true', MAIL_ALLOW_PERMANENT_DELETE: 'true' }, 6],
   ])('registers exactly toolNamesFor(features) for %j', async (env, count) => {
     const svc = service(env);
@@ -82,10 +83,47 @@ describe('tool catalogue', () => {
     const svc = new MailService(loadConfig({}, { platform: 'linux', home: root }), { logger: quiet, platform: 'linux' });
     expect(svc.configErrors.length).toBeGreaterThan(0);
     const client = await connect(svc);
-    expect((await client.listTools()).tools).toHaveLength(18);
+    expect((await client.listTools()).tools).toHaveLength(19);
     const r = await client.callTool({ name: 'search_messages', arguments: {} });
     expect(r.isError).toBe(true);
     await client.close();
+  });
+});
+
+describe('Gmail tool surface', () => {
+  it('has gmail_query and labels instead of Apple flag colours', async () => {
+    const client = await connect(service());
+    const tools = (await client.listTools()).tools;
+    const props = (name: string): Record<string, { description?: string }> => (tools.find((t) => t.name === name)?.inputSchema.properties ?? {}) as Record<string, { description?: string }>;
+    expect(Object.keys(props('search_messages'))).toContain('gmail_query');
+    expect(props('search_messages')['gmail_query']?.description).toMatch(/X-GM-RAW/);
+    expect(Object.keys(props('search_messages'))).not.toContain('flag_color');
+    expect(Object.keys(props('mark_messages')).sort()).toEqual(['flagged', 'mailbox', 'read', 'uids']);
+    expect(Object.keys(props('label_messages')).sort()).toEqual(['add', 'mailbox', 'remove', 'uids']);
+    expect(tools.find((t) => t.name === 'label_messages')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    for (const t of tools) expect(`${t.name}: ${t.description ?? ''}`).not.toMatch(/iCloud|Apple Mail/);
+    await client.close();
+  });
+
+  it('rejects flag_color and invalid labels at the schema', async () => {
+    const client = await connect(service());
+    const flag = await client.callTool({ name: 'mark_messages', arguments: { mailbox: 'INBOX', uids: [1], flag_color: 'red' } });
+    expect(flag.isError).toBe(true);
+    expect(JSON.stringify(flag.content)).toMatch(/flag_color/);
+    const tooMany = await client.callTool({ name: 'label_messages', arguments: { mailbox: 'INBOX', uids: [1], add: Array.from({ length: 21 }, (_, i) => `L${i}`) } });
+    expect(tooMany.isError).toBe(true);
+    const tooLong = await client.callTool({ name: 'label_messages', arguments: { mailbox: 'INBOX', uids: [1], add: ['x'.repeat(226)] } });
+    expect(tooLong.isError).toBe(true);
+    expect(JSON.stringify(tooMany.content)).toMatch(/add/);
+    expect(JSON.stringify(tooLong.content)).toMatch(/add/);
+    await client.close();
+  });
+
+  it('names Gmail in the server instructions and title', () => {
+    expect(BASE_INSTRUCTIONS).toMatch(/^This server controls the user's real Gmail mailbox/);
+    expect(BASE_INSTRUCTIONS).toContain('gmail_query');
+    expect(BASE_INSTRUCTIONS).toContain('label_messages');
+    expect(BASE_INSTRUCTIONS).not.toMatch(/iCloud|Apple/);
   });
 });
 

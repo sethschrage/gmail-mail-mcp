@@ -12,7 +12,8 @@
  * - GMAIL_<ACCOUNT>_IMAP_USER, _FROM_ADDRESS, _FROM_NAME, _ALLOWED_FROM: optional identity settings.
  * - GMAIL_<ACCOUNT>_MAIL_<SETTING>: any MAIL_* setting for this account only (for example
  *   GMAIL_WORK_MAIL_READ_ONLY=true); unprefixed MAIL_* settings apply to every account.
- * An account without a usable access key does not exist as far as the outside can tell: 404.
+ * A request without the right key gets 404, whether the account exists or not, so account names
+ * cannot be probed.
  *
  * One MailService (IMAP connection, limits) per account, cached while the instance stays warm and
  * rebuilt when the account's settings change. Credentials are never logged or returned, and the
@@ -136,6 +137,9 @@ interface CacheEntry {
   key: string;
   service: MailService;
   mcp: McpHttpHandler;
+  /** Requests currently using this entry; an evicted entry is closed only when this reaches 0. */
+  inFlight: number;
+  evicted: boolean;
 }
 
 export type CloudHandler = ((request: Request) => Promise<Response>) & {
@@ -156,9 +160,15 @@ export function createCloudHandler(options: CloudHandlerOptions = {}): CloudHand
     if (v && /^GMAIL_[A-Z0-9_]+_(ACCESS_KEY|PASSWORD)$/.test(k)) registerSecret(v.trim());
   }
 
+  const closeNow = (entry: CacheEntry): void => {
+    void entry.service.close().catch(() => undefined);
+    void entry.mcp.close().catch(() => undefined);
+  };
+  /** Close an entry that left the cache, once no request is using it any more. */
   const closeEntry = (entry: CacheEntry | undefined): void => {
-    void entry?.service.close().catch(() => undefined);
-    void entry?.mcp.close().catch(() => undefined);
+    if (!entry) return;
+    entry.evicted = true;
+    if (entry.inFlight === 0) closeNow(entry);
   };
 
   const entryFor = (account: string): CacheEntry => {
@@ -188,7 +198,7 @@ export function createCloudHandler(options: CloudHandlerOptions = {}): CloudHand
       legacy: 'stateless',
       onerror: (err) => logger.warn('MCP request error', { account, err: redact(errorMessage(err)) }),
     });
-    const entry: CacheEntry = { key, service, mcp };
+    const entry: CacheEntry = { key, service, mcp, inFlight: 0, evicted: false };
     cache.set(account, entry);
     while (cache.size > MAX_CACHED_LOGINS) {
       const oldestKey = cache.keys().next().value as string;
@@ -214,15 +224,26 @@ export function createCloudHandler(options: CloudHandlerOptions = {}): CloudHand
       }
       return json({ error: 'not found' }, 404);
     }
-    if (access !== 'ok') return json({ error: 'unauthorized' }, 401);
+    if (access !== 'ok') {
+      // The same answer as an unknown account, so account names cannot be probed.
+      logger.info('MCP request refused: wrong access key', { account });
+      return json({ error: 'not found' }, 404);
+    }
+    let entry: CacheEntry | undefined;
     try {
-      const { mcp } = entryFor(account);
-      const response = await mcp.fetch(request);
+      entry = entryFor(account);
+      entry.inFlight++;
+      const response = await entry.mcp.fetch(request);
       logger.info('MCP request', { account, method: request.method, status: response.status, ms: Date.now() - started });
       return response;
     } catch (err) {
       logger.error('MCP request failed', { account, err: redact(errorMessage(err)) });
       return json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Internal error' } }, 500);
+    } finally {
+      if (entry) {
+        entry.inFlight--;
+        if (entry.evicted && entry.inFlight === 0) closeNow(entry);
+      }
     }
   };
 

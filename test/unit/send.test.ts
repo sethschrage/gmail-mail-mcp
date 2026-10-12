@@ -62,25 +62,31 @@ function smtpErr(message: string, extra: Partial<NodemailerError>): NodemailerEr
 }
 
 describe('SMTP error mapping', () => {
-  const ctx = { host: 'smtp.mail.me.com', port: 587, user: 'me@icloud.com' };
+  const ctx = { host: 'smtp.gmail.com', port: 587, user: 'me@gmail.com' };
   it('535 → auth guidance mentioning the full address', () => {
     const e = mapSmtpError(smtpErr('Invalid login', { code: 'EAUTH', responseCode: 535, response: '535 5.7.8 Authentication credentials invalid' }), ctx);
     expect(e.code).toBe('AUTH');
-    expect(e.message).toMatch(/app-specific password/);
-    expect(e.message).toMatch(/full iCloud Mail address/);
+    expect(e.message).toContain('Gmail SMTP (smtp.gmail.com:587) rejected the login for "me@gmail.com"');
+    expect(e.message).toMatch(/instead of an app password/);
+    expect(e.message).toMatch(/the login must be the full Gmail or Google Workspace address/);
     expect(e.message).toContain('server said: 535 5.7.8 Authentication credentials invalid');
+    expect(e.message).not.toMatch(/iCloud|Apple/);
   });
 
   it('550 5.7.0 → From is not one of your addresses', () => {
     const e = mapSmtpError(smtpErr('Mail command failed', { code: 'EENVELOPE', responseCode: 550, response: '550 5.7.0 From address is not one of your addresses' }), ctx);
-    expect(e.message).toMatch(/alias/);
+    expect(e.message).toMatch(/^Gmail refused the From address/);
+    expect(e.message).toMatch(/verified "Send mail as" addresses/);
     expect(e.message).toMatch(/Not sent/);
   });
 
   it('552 size, 452 recipients, other 4xx temporary', () => {
-    expect(mapSmtpError(smtpErr('x', { responseCode: 552, response: '552 5.3.4 too big' }), ctx).code).toBe('TOO_LARGE');
-    expect(mapSmtpError(smtpErr('x', { responseCode: 452, response: '452 4.5.3 Too many recipients' }), ctx).message).toMatch(/500 per message/);
-    expect(mapSmtpError(smtpErr('x', { responseCode: 421, response: '421 try later' }), ctx).message).toMatch(/temporary.*retrying later may work/);
+    const big = mapSmtpError(smtpErr('x', { responseCode: 552, response: '552 5.3.4 too big' }), ctx);
+    expect(big.code).toBe('TOO_LARGE');
+    expect(big.message).toMatch(/too large for Gmail \(25 MB per message/);
+    expect(mapSmtpError(smtpErr('x', { responseCode: 452, response: '452 4.5.3 Too many recipients' }), ctx).message).toMatch(/Too many recipients for Gmail \(100 per message over SMTP/);
+    expect(mapSmtpError(smtpErr('x', { responseCode: 421, response: '421 try later' }), ctx).message).toMatch(/^Gmail reported a temporary problem.*retrying later may work/);
+    expect(mapSmtpError(smtpErr('x', { responseCode: 554, response: '554 5.7.0 spam' }), ctx).message).toMatch(/^Gmail rejected the message/);
   });
 
   it('all recipients rejected lists each reason', () => {
@@ -144,19 +150,19 @@ describe('RecipientLimiter', () => {
 
 // err-1: recipient rejections are never reported as From or size problems.
 describe('SMTP error mapping by command and enhanced status', () => {
-  const ctx = { host: 'smtp.mail.me.com', port: 587, user: 'me@icloud.com' };
+  const ctx = { host: 'smtp.gmail.com', port: 587, user: 'me@gmail.com' };
   const envelope = (code: number, response: string) =>
     smtpErr("Can't send mail - all recipients were rejected", {
       code: 'EENVELOPE',
       command: 'RCPT TO',
       responseCode: code,
       response,
-      rejectedErrors: [smtpErr('x', { recipient: 'friend@icloud.com', responseCode: code, response })],
+      rejectedErrors: [smtpErr('x', { recipient: 'friend@example.org', responseCode: code, response })],
     });
   it('a recipient policy block (550 5.7.0) is a recipient problem', () => {
     const e = mapSmtpError(envelope(550, '550 5.7.0 Recipient blocked by policy'), ctx);
     expect(e.message).not.toMatch(/From address/);
-    expect(e.message).toMatch(/friend@icloud\.com: 550 5\.7\.0 Recipient blocked by policy \(the recipient's server refused it by policy\)/);
+    expect(e.message).toMatch(/friend@example\.org: 550 5\.7\.0 Recipient blocked by policy \(the recipient's server refused it by policy\)/);
   });
   it('a full recipient mailbox (552 5.2.2) is not "too large"', () => {
     const e = mapSmtpError(envelope(552, '552 5.2.2 Mailbox full'), ctx);
@@ -165,7 +171,7 @@ describe('SMTP error mapping by command and enhanced status', () => {
   });
   it('452 4.2.2 is mailbox full, 452 4.5.3 too many recipients', () => {
     expect(explainRecipientRejection(smtpErr('x', { responseCode: 452, response: '452 4.2.2 Over quota' }))).toMatch(/mailbox is full; retrying later may work/);
-    expect(explainRecipientRejection(smtpErr('x', { responseCode: 452, response: '452 4.5.3 Too many recipients' }))).toMatch(/too many recipients/);
+    expect(explainRecipientRejection(smtpErr('x', { responseCode: 452, response: '452 4.5.3 Too many recipients' }))).toMatch(/too many recipients; Gmail allows 100 per message/);
   });
   it('MAIL FROM 550 5.7.0 still explains the From address; size at DATA is TOO_LARGE', () => {
     expect(mapSmtpError(smtpErr('x', { code: 'EENVELOPE', command: 'MAIL FROM', responseCode: 550, response: '550 5.7.0 Sender rejected' }), ctx).message).toMatch(/refused the From address/);
@@ -175,7 +181,7 @@ describe('SMTP error mapping by command and enhanced status', () => {
 
 describe('Sender pipeline (fake transport)', () => {
   const { config } = loadConfig(
-    { GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: path.join(dir, 'audit.jsonl'), MAIL_SAVE_SENT_COPY: 'false', MAIL_CONFIRM_DIALOG: 'true' },
+    { GMAIL_EMAIL: 'me@gmail.com', GMAIL_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: path.join(dir, 'audit.jsonl'), MAIL_SAVE_SENT_COPY: 'false', MAIL_CONFIRM_DIALOG: 'true' },
     { platform: 'linux', home: dir },
   );
   const logger = createLogger({ level: 'error', sink: () => undefined });
@@ -201,7 +207,7 @@ describe('Sender pipeline (fake transport)', () => {
   }
 
   const message = () =>
-    buildMessage({ from: { name: '', address: 'me@icloud.com' }, to: [{ name: '', address: 'a@example.com' }], cc: [], bcc: [{ name: '', address: 'b@example.com' }], subject: 'S', text: 'T', attachments: [] });
+    buildMessage({ from: { name: '', address: 'me@gmail.com' }, to: [{ name: '', address: 'a@example.com' }], cc: [], bcc: [{ name: '', address: 'b@example.com' }], subject: 'S', text: 'T', attachments: [] });
 
   it('sends the Bcc-less raw bytes with the envelope and the same Message-ID, on a per-send transport', async () => {
     const seen: Array<{ options: unknown; mail: unknown }> = [];
@@ -209,7 +215,7 @@ describe('Sender pipeline (fake transport)', () => {
     const transport: TransportFactory = (options) => ({
       sendMail: (mail) => {
         seen.push({ options, mail });
-        return Promise.resolve({ accepted: ['a@example.com', 'b@example.com'], rejected: [], messageId: mail.messageId, envelope: { from: 'me@icloud.com', to: [] }, response: '250 ok' } as unknown as SMTPSentMessageInfo);
+        return Promise.resolve({ accepted: ['a@example.com', 'b@example.com'], rejected: [], messageId: mail.messageId, envelope: { from: 'me@gmail.com', to: [] }, response: '250 ok' } as unknown as SMTPSentMessageInfo);
       },
       close: () => {
         closed++;
@@ -222,12 +228,12 @@ describe('Sender pipeline (fake transport)', () => {
     const mail = seen[0]?.mail as { raw: Buffer; envelope: unknown; messageId: string; disableFileAccess: boolean; disableUrlAccess: boolean };
     expect(mail.raw).toBe(built.raw);
     expect(mail.raw.toString()).not.toMatch(/^Bcc:/m);
-    expect(mail.envelope).toEqual({ from: 'me@icloud.com', to: ['a@example.com', 'b@example.com'] });
+    expect(mail.envelope).toEqual({ from: 'me@gmail.com', to: ['a@example.com', 'b@example.com'] });
     expect(mail.messageId).toBe(built.messageId);
     expect(mail.disableFileAccess).toBe(true);
     expect(mail.disableUrlAccess).toBe(true);
     const opts = seen[0]?.options as Record<string, unknown>;
-    expect(opts).toMatchObject({ host: 'smtp.mail.me.com', port: 587, secure: false, requireTLS: true, auth: { user: 'me@icloud.com', pass: 'app-pass-000' } });
+    expect(opts).toMatchObject({ host: 'smtp.gmail.com', port: 587, secure: false, requireTLS: true, auth: { user: 'me@gmail.com', pass: 'app-pass-000' } });
     expect('logger' in opts).toBe(false);
     // ehlo-1: never the Mac's hostname.
     expect(opts['name']).toBe(EHLO_NAME);
@@ -280,8 +286,8 @@ describe('Sender: dialog contents, 8BITMIME and post-send work', () => {
     close: () => undefined,
   });
 
-  function build(env: Record<string, string>, deps: { imap?: unknown; registry?: unknown; confirm?: (r: { message: string }) => void; transport: TransportFactory }) {
-    const { config } = loadConfig({ GMAIL_EMAIL: 'me@icloud.com', GMAIL_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: 'off', ...env }, { platform: 'linux', home: dir });
+  function build(env: Record<string, string>, deps: { imap?: unknown; registry?: unknown; confirm?: (r: { title: string; message: string }) => void; transport: TransportFactory }) {
+    const { config } = loadConfig({ GMAIL_EMAIL: 'me@gmail.com', GMAIL_APP_PASSWORD: 'app-pass-000', MAIL_AUDIT_LOG: 'off', ...env }, { platform: 'linux', home: dir });
     return new Sender({
       config,
       credentials: new CredentialProvider(config, { platform: 'linux' }),
@@ -303,9 +309,10 @@ describe('Sender: dialog contents, 8BITMIME and post-send work', () => {
   // confirm-2: the dialog shows Reply-To and every recipient.
   it('passes Reply-To and all recipients to the dialog', async () => {
     let shown = '';
-    const s = build({ MAIL_CONFIRM_DIALOG: 'true', MAIL_SAVE_SENT_COPY: 'false' }, { transport: okTransport([]), confirm: (r) => (shown = r.message) });
+    let title = '';
+    const s = build({ MAIL_CONFIRM_DIALOG: 'true', MAIL_SAVE_SENT_COPY: 'false' }, { transport: okTransport([]), confirm: (r) => ((shown = r.message), (title = r.title)) });
     const built = await buildMessage({
-      from: { name: '', address: 'me@icloud.com' },
+      from: { name: '', address: 'me@gmail.com' },
       to: [{ name: 'x'.repeat(300), address: 'a@example.com' }],
       cc: [],
       bcc: [{ name: '', address: 'hidden@example.com' }],
@@ -315,6 +322,8 @@ describe('Sender: dialog contents, 8BITMIME and post-send work', () => {
       attachments: [],
     });
     await s.send(built, { tool: 'send_email' });
+    expect(title).toBe('Gmail: send this email?');
+    expect(shown).toContain('Claude wants to send this email from your Gmail account:');
     expect(shown).toContain('Reply-To (1): redirect@attacker.example');
     expect(shown).toContain('Bcc (1): hidden@example.com');
     expect(shown).toContain('a@example.com');
@@ -326,7 +335,7 @@ describe('Sender: dialog contents, 8BITMIME and post-send work', () => {
     const s = build({ MAIL_SAVE_SENT_COPY: 'false' }, { transport: okTransport(seen) });
     const inner = Buffer.from('From: a@example.com\r\nSubject: Grüße\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nGrüße aus München\r\n', 'utf8');
     const built = await buildMessage({
-      from: { name: '', address: 'me@icloud.com' },
+      from: { name: '', address: 'me@gmail.com' },
       to: [{ name: '', address: 'a@example.com' }],
       cc: [],
       bcc: [],
@@ -354,23 +363,34 @@ describe('Sender: dialog contents, 8BITMIME and post-send work', () => {
       fetchOne: () => Promise.resolve({ uid: 42, flags: new Set(['\\Seen']) }),
     };
     const imap = { withMailbox: <T>(p: string, fn: (c: unknown, b: unknown) => Promise<T>) => fn(client, { path: p, exists: 0 }) };
-    const registry = { resolveSpecial: () => Promise.resolve({ path: 'Sent Messages' }), invalidateCounts: () => undefined, invalidate: () => undefined };
+    const registry = { resolveSpecial: () => Promise.resolve({ path: '[Gmail]/Sent Mail' }), invalidateCounts: () => undefined, invalidate: () => undefined };
     return { imap, registry, appended };
   }
 
-  const simple = () => buildMessage({ from: { name: '', address: 'me@icloud.com' }, to: [{ name: '', address: 'a@example.com' }], cc: [], bcc: [], subject: 'S', text: 'T', attachments: [] });
+  const simple = () => buildMessage({ from: { name: '', address: 'me@gmail.com' }, to: [{ name: '', address: 'a@example.com' }], cc: [], bcc: [], subject: 'S', text: 'T', attachments: [] });
+
+  // Gmail files sent mail in Sent itself; other servers (the local test server) need the copy.
+  const NEEDS_COPY = { IMAP_HOST: 'localhost' };
+
+  it('does not append a Sent copy on Gmail (the default host)', async () => {
+    const d = sentCopyDeps({});
+    const s = build({}, { imap: d.imap, registry: d.registry, transport: okTransport([]) });
+    const r = await s.send(await simple(), { tool: 'send_email' });
+    expect(r).toMatchObject({ sent: true, sent_copy_saved: false });
+    expect(d.appended).toEqual([]);
+  });
 
   it('appends the Sent copy even when the duplicate check fails', async () => {
     const d = sentCopyDeps({ searchFails: true });
-    const s = build({}, { imap: d.imap, registry: d.registry, transport: okTransport([]) });
+    const s = build(NEEDS_COPY, { imap: d.imap, registry: d.registry, transport: okTransport([]) });
     const r = await s.send(await simple(), { tool: 'send_email' });
-    expect(r).toMatchObject({ sent: true, sent_copy_saved: true, sent_copy_uid: 42, sent_copy_mailbox: 'Sent Messages' });
-    expect(d.appended).toEqual(['Sent Messages']);
+    expect(r).toMatchObject({ sent: true, sent_copy_saved: true, sent_copy_uid: 42, sent_copy_mailbox: '[Gmail]/Sent Mail' });
+    expect(d.appended).toEqual(['[Gmail]/Sent Mail']);
   });
 
   it('reports a delivered email as sent when saving the copy outlasts the deadline', async () => {
     const d = sentCopyDeps({ appendHangs: true });
-    const s = build({}, { imap: d.imap, registry: d.registry, transport: okTransport([]) });
+    const s = build(NEEDS_COPY, { imap: d.imap, registry: d.registry, transport: okTransport([]) });
     const started = Date.now();
     const r = await s.send(await simple(), { tool: 'send_email', deadlineAt: Date.now() + POST_SEND_MARGIN_MS + 300 });
     expect(Date.now() - started).toBeLessThan(3000);

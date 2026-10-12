@@ -169,9 +169,10 @@ function findByName(input: string, mailboxes: readonly MailboxInfo[]): MailboxIn
  *    replace Gmail's real folder;
  * 4. imapflow's name guess, for a selectable top-level folder only (a nested "Old Mail/Sent" or
  *    "Clients/Trash" is a user folder, never the special one);
- * 5. archive only: the \All mailbox (Gmail's "[Gmail]/All Mail"), since archiving there is what
- *    Gmail's Archive does and creating an "Archive" folder would only add a label;
- * 6. none.
+ * 5. none.
+ * Archive only: the \All mailbox (Gmail's "[Gmail]/All Mail") comes right after the override and
+ * a real \Archive attribute, before steps 3 and 4: on Gmail a folder named "Archive" is just a
+ * label, and archiving is what All Mail stands for.
  * A mailbox is used for at most one kind.
  */
 export function computeSpecialMap(mailboxes: readonly MailboxInfo[], overrides: Partial<Record<SpecialFolder, string>>): SpecialResolution {
@@ -197,6 +198,9 @@ export function computeSpecialMap(mailboxes: readonly MailboxInfo[], overrides: 
   for (const kind of pending) {
     take(kind, mailboxes.find((m) => free(m) && m.serverSpecialUse === kind && (m.serverSpecialUseSource === 'extension' || m.serverSpecialUseSource === 'user')));
   }
+  // Archive: the \All mailbox (Gmail's All Mail) before any name match, so a user label that
+  // happens to be called "Archive" never takes its place.
+  if (pending.includes('archive') && !map.archive) take('archive', mailboxes.find((m) => free(m) && isAllMailbox(m)));
   for (const kind of pending) {
     if (map[kind]) continue;
     if (kind === 'archive') continue;

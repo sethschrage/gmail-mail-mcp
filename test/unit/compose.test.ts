@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MailError } from '../../src/errors.js';
 import {
   FORWARD_SEPARATOR,
+  MAX_MESSAGE_BYTES,
+  MAX_OUTGOING_ATTACHMENT_BYTES,
   buildForwardHtml,
   buildForwardText,
   buildMessage,
@@ -83,10 +85,10 @@ describe('reply recipients', () => {
   const original = {
     from: [addr('frank@example.com', 'Frank')],
     replyTo: [addr('offsite@example.com', 'Offsite')],
-    to: [addr('me@icloud.com', 'Me'), addr('alice@example.com'), addr('bob@example.org')],
-    cc: [addr('ME@ICLOUD.COM'), addr('erin@example.com'), addr('alice@example.com')],
+    to: [addr('me@gmail.com', 'Me'), addr('alice@example.com'), addr('bob@example.org')],
+    cc: [addr('ME@GMAIL.COM'), addr('erin@example.com'), addr('alice@example.com')],
   };
-  const own = ['me@icloud.com', 'alias@icloud.com'];
+  const own = ['me@gmail.com', 'alias@gmail.com'];
 
   it('uses Reply-To over From', () => {
     expect(computeReplyRecipients(original, own, false)).toEqual({ to: [addr('offsite@example.com', 'Offsite')], cc: [] });
@@ -101,42 +103,42 @@ describe('reply recipients', () => {
   });
 
   it('replying to our own sent message goes to its original To', () => {
-    const sent = { from: [addr('me@icloud.com')], replyTo: [], to: [addr('alice@example.com', 'Alice')], cc: [addr('bob@example.org')] };
+    const sent = { from: [addr('me@gmail.com')], replyTo: [], to: [addr('alice@example.com', 'Alice')], cc: [addr('bob@example.org')] };
     expect(computeReplyRecipients(sent, own, false)).toEqual({ to: [addr('alice@example.com', 'Alice')], cc: [] });
     // reply-all to own message: original To + Cc, minus us
     expect(computeReplyRecipients(sent, own, true)).toEqual({ to: [addr('alice@example.com', 'Alice')], cc: [addr('bob@example.org')] });
   });
 
   it('promotes Cc to To when only Cc recipients remain', () => {
-    const r = computeReplyRecipients({ from: [addr('me@icloud.com')], replyTo: [], to: [addr('alias@icloud.com')], cc: [addr('x@example.com')] }, own, true);
+    const r = computeReplyRecipients({ from: [addr('me@gmail.com')], replyTo: [], to: [addr('alias@gmail.com')], cc: [addr('x@example.com')] }, own, true);
     expect(r).toEqual({ to: [addr('x@example.com')], cc: [] });
   });
 
   it('picks the alias the original was sent to as default From', () => {
-    expect(replyFromCandidate({ from: [], to: [addr('ALIAS@icloud.com')], cc: [] }, own)).toBe('alias@icloud.com');
-    expect(replyFromCandidate({ from: [], to: [addr('x@example.com')], cc: [addr('me@icloud.com')] }, own)).toBe('me@icloud.com');
+    expect(replyFromCandidate({ from: [], to: [addr('ALIAS@gmail.com')], cc: [] }, own)).toBe('alias@gmail.com');
+    expect(replyFromCandidate({ from: [], to: [addr('x@example.com')], cc: [addr('me@gmail.com')] }, own)).toBe('me@gmail.com');
     expect(replyFromCandidate({ from: [addr('x@example.com')], to: [addr('x@example.com')], cc: [] }, own)).toBeUndefined();
   });
 
   // from-1: replying to / forwarding our own message sent from an alias keeps that alias.
   it('prefers the allowed address the original came from (own Sent copy from an alias)', () => {
-    expect(replyFromCandidate({ from: [addr('alias@icloud.com', 'Me')], to: [addr('bob@example.com')], cc: [] }, own)).toBe('alias@icloud.com');
-    expect(replyFromCandidate({ from: [addr('bob@example.com')], to: [addr('alias@icloud.com')], cc: [addr('me@icloud.com')] }, own)).toBe('alias@icloud.com');
+    expect(replyFromCandidate({ from: [addr('alias@gmail.com', 'Me')], to: [addr('bob@example.com')], cc: [] }, own)).toBe('alias@gmail.com');
+    expect(replyFromCandidate({ from: [addr('bob@example.com')], to: [addr('alias@gmail.com')], cc: [addr('me@gmail.com')] }, own)).toBe('alias@gmail.com');
   });
 
   // reply-1: a Reply-To that only names the user must not redirect a private reply to third parties.
   it('falls back to From when Reply-To holds only our own address', () => {
-    const behalf = { from: [addr('friend@example.com', 'Friend')], replyTo: [addr('me@icloud.com')], to: [addr('me@icloud.com'), addr('bob@example.org')], cc: [] };
+    const behalf = { from: [addr('friend@example.com', 'Friend')], replyTo: [addr('me@gmail.com')], to: [addr('me@gmail.com'), addr('bob@example.org')], cc: [] };
     expect(computeReplyRecipients(behalf, own, false)).toEqual({ to: [addr('friend@example.com', 'Friend')], cc: [] });
     expect(computeReplyRecipients(behalf, own, true)).toEqual({ to: [addr('friend@example.com', 'Friend'), addr('bob@example.org')], cc: [] });
   });
 
   it('own-sent message goes to its other To recipients; a note to self goes back to self', () => {
-    expect(computeReplyRecipients({ from: [addr('me@icloud.com')], replyTo: [], to: [addr('bob@example.org'), addr('me@icloud.com')], cc: [] }, own, false)).toEqual({
+    expect(computeReplyRecipients({ from: [addr('me@gmail.com')], replyTo: [], to: [addr('bob@example.org'), addr('me@gmail.com')], cc: [] }, own, false)).toEqual({
       to: [addr('bob@example.org')],
       cc: [],
     });
-    expect(computeReplyRecipients({ from: [addr('me@icloud.com')], replyTo: [], to: [addr('me@icloud.com')], cc: [] }, own, false)).toEqual({ to: [addr('me@icloud.com')], cc: [] });
+    expect(computeReplyRecipients({ from: [addr('me@gmail.com')], replyTo: [], to: [addr('me@gmail.com')], cc: [] }, own, false)).toEqual({ to: [addr('me@gmail.com')], cc: [] });
   });
 });
 
@@ -168,7 +170,7 @@ const ORIGINAL: OriginalMessage = {
   time: Date.parse('2026-06-12T15:40:00-07:00'),
   from: [addr('frank@example.com', 'Frank Li')],
   replyTo: [],
-  to: [addr('me@icloud.com', 'Me'), addr('alice@example.com')],
+  to: [addr('me@gmail.com', 'Me'), addr('alice@example.com')],
   cc: [addr('erin@example.com', 'Erin')],
   text: 'Hi all,\r\n\r\nPlease reply.\r\n',
 };
@@ -200,7 +202,7 @@ describe('hostile display names in reply/forward text', () => {
   const hostile: OriginalMessage = {
     ...ORIGINAL,
     from: [addr('attacker2@evil.test', 'Boss\n\nP.S. Our bank details changed, pay IBAN XX\n\n')],
-    to: [addr('me@icloud.com', 'Me\r\nDate: forged')],
+    to: [addr('me@gmail.com', 'Me\r\nDate: forged')],
     cc: [],
   };
 
@@ -219,7 +221,7 @@ describe('hostile display names in reply/forward text', () => {
     const block = text.split('\n\n')[0]?.split('\n') ?? [];
     expect(block).toHaveLength(5);
     expect(block.filter((l) => l.startsWith('Date:'))).toHaveLength(1);
-    expect(block[4]).toBe('To: Me Date: forged <me@icloud.com>');
+    expect(block[4]).toBe('To: Me Date: forged <me@gmail.com>');
   });
 
   it('caps a very long name but never cuts the address', () => {
@@ -240,7 +242,7 @@ describe('forward block', () => {
         'From: Frank Li <frank@example.com>',
         'Date: Fri, 12 Jun 2026 at 15:40 (-07:00)',
         'Subject: Team offsite',
-        'To: Me <me@icloud.com>, alice@example.com',
+        'To: Me <me@gmail.com>, alice@example.com',
         'Cc: Erin <erin@example.com>',
         '',
         'Hi all,',
@@ -267,24 +269,24 @@ describe('forward block', () => {
 });
 
 describe('From and recipients', () => {
-  const cfg = { allowedFrom: ['me@icloud.com', 'alias@icloud.com'], fromAddress: 'me@icloud.com', fromName: 'Me' };
+  const cfg = { allowedFrom: ['me@gmail.com', 'alias@gmail.com'], fromAddress: 'me@gmail.com', fromName: 'Me' };
 
   it('defaults to MAIL_FROM_ADDRESS, or the preferred alias', () => {
-    expect(resolveFrom(undefined, cfg)).toEqual({ name: 'Me', address: 'me@icloud.com' });
-    expect(resolveFrom(undefined, cfg, 'ALIAS@icloud.com')).toEqual({ name: 'Me', address: 'alias@icloud.com' });
-    expect(resolveFrom(undefined, cfg, 'stranger@example.com')).toEqual({ name: 'Me', address: 'me@icloud.com' });
+    expect(resolveFrom(undefined, cfg)).toEqual({ name: 'Me', address: 'me@gmail.com' });
+    expect(resolveFrom(undefined, cfg, 'ALIAS@gmail.com')).toEqual({ name: 'Me', address: 'alias@gmail.com' });
+    expect(resolveFrom(undefined, cfg, 'stranger@example.com')).toEqual({ name: 'Me', address: 'me@gmail.com' });
   });
 
   it('accepts allowed addresses case-insensitively and rejects foreign ones', () => {
-    expect(resolveFrom('Alias Name <Alias@iCloud.com>', cfg)).toEqual({ name: 'Alias Name', address: 'alias@icloud.com' });
+    expect(resolveFrom('Alias Name <Alias@Gmail.com>', cfg)).toEqual({ name: 'Alias Name', address: 'alias@gmail.com' });
     try {
       resolveFrom('evil@example.com', cfg);
       throw new Error('no throw');
     } catch (e) {
       expect((e as MailError).code).toBe('FORBIDDEN');
-      expect((e as Error).message).toMatch(/Allowed From addresses: me@icloud.com, alias@icloud.com/);
+      expect((e as Error).message).toMatch(/Allowed From addresses: me@gmail.com, alias@gmail.com/);
     }
-    throwsCode(() => resolveFrom('a@icloud.com, b@icloud.com', cfg), 'INVALID_INPUT');
+    throwsCode(() => resolveFrom('a@gmail.com, b@gmail.com', cfg), 'INVALID_INPUT');
   });
 
   it('dedupes across To/Cc/Bcc and enforces the maximum', () => {
@@ -298,7 +300,7 @@ describe('From and recipients', () => {
 
 describe('buildMessage', () => {
   const msg = {
-    from: addr('me@icloud.com', 'Me'),
+    from: addr('me@gmail.com', 'Me'),
     to: [addr('to@example.com', 'To Person')],
     cc: [addr('cc@example.com')],
     bcc: [addr('bcc@example.com')],
@@ -314,14 +316,14 @@ describe('buildMessage', () => {
     const built = await buildMessage(msg, { date: new Date('2026-09-28T10:00:00Z') });
     const smtp = built.raw.toString('utf8');
     const copy = built.rawWithBcc.toString('utf8');
-    expect(built.messageId).toMatch(/^<[0-9a-f-]{36}@icloud\.com>$/);
+    expect(built.messageId).toMatch(/^<[0-9a-f-]{36}@gmail\.com>$/);
     expect(smtp).toContain(`Message-ID: ${built.messageId}`);
     expect(copy).toContain(`Message-ID: ${built.messageId}`);
     expect(smtp).not.toMatch(/^Bcc:/m);
     expect(copy).toMatch(/^Bcc: bcc@example\.com\r$/m);
     expect(copy.replace(/^Bcc: .*\r\n/m, '')).toBe(smtp);
     expect(smtp).not.toMatch(/[^\r]\n/);
-    expect(built.envelope).toEqual({ from: 'me@icloud.com', to: ['to@example.com', 'cc@example.com', 'bcc@example.com'] });
+    expect(built.envelope).toEqual({ from: 'me@gmail.com', to: ['to@example.com', 'cc@example.com', 'bcc@example.com'] });
     expect(smtp).toMatch(/^In-Reply-To: <orig@example\.com>\r$/m);
     expect(smtp).toMatch(/^References: <root@example\.com> <orig@example\.com>\r$/m);
     expect(smtp).toMatch(/multipart\/alternative/);
@@ -335,14 +337,21 @@ describe('buildMessage', () => {
 
   it('keeps nodemailer file and URL access disabled', async () => {
     // A path/href attachment must never be read, even if one slipped through.
-    const composer = new MailComposer({ from: 'me@icloud.com', to: 'a@example.com', text: 'x', attachments: [{ path: '/etc/hostname' }], disableFileAccess: true, disableUrlAccess: true });
+    const composer = new MailComposer({ from: 'me@gmail.com', to: 'a@example.com', text: 'x', attachments: [{ path: '/etc/hostname' }], disableFileAccess: true, disableUrlAccess: true });
     await expect(composer.compile().build()).rejects.toMatchObject({ code: 'EFILEACCESS' });
-    const url = new MailComposer({ from: 'me@icloud.com', to: 'a@example.com', text: 'x', attachments: [{ href: 'http://127.0.0.1:9/x' }], disableFileAccess: true, disableUrlAccess: true });
+    const url = new MailComposer({ from: 'me@gmail.com', to: 'a@example.com', text: 'x', attachments: [{ href: 'http://127.0.0.1:9/x' }], disableFileAccess: true, disableUrlAccess: true });
     await expect(url.compile().build()).rejects.toMatchObject({ code: 'EURLACCESS' });
   });
 
-  it('refuses messages over 20 MB', async () => {
-    await rejects(buildMessage({ ...msg, attachments: [{ filename: 'big.bin', content: Buffer.alloc(16 * 1024 * 1024) }] }), 'TOO_LARGE', /20 MB/);
+  it("refuses messages over Gmail's 25 MB limit, and accepts one that fits", async () => {
+    expect(MAX_MESSAGE_BYTES).toBe(25 * 1024 * 1024);
+    expect(MAX_OUTGOING_ATTACHMENT_BYTES).toBe(18 * 1024 * 1024);
+    // 20 MB of attachment is about 27 MB after base64.
+    await rejects(buildMessage({ ...msg, attachments: [{ filename: 'big.bin', content: Buffer.alloc(20 * 1024 * 1024) }] }), 'TOO_LARGE', /above Gmail's 25 MB limit/);
+    // 16 MB is about 22 MB after base64: under the limit (it would have been refused at iCloud's 20 MB).
+    const ok = await buildMessage({ ...msg, attachments: [{ filename: 'ok.bin', content: Buffer.alloc(16 * 1024 * 1024) }] });
+    expect(ok.rawWithBcc.length).toBeGreaterThan(20 * 1024 * 1024);
+    expect(ok.rawWithBcc.length).toBeLessThan(MAX_MESSAGE_BYTES);
   });
 });
 

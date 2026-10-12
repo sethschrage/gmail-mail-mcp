@@ -1,15 +1,28 @@
-# icloud-mail-mcp: design spec
+# gmail-mail-mcp: design spec
 
-A local MCP server (stdio) that lets **Claude Desktop on macOS** read, search, organize, draft and send **iCloud Mail** over IMAP/SMTP. It sits alongside Apple Mail: every change syncs through iCloud, so Apple Mail shows it.
+An MCP server that lets Claude read, search, label, organize, draft and send mail in **Gmail and Google Workspace accounts** over IMAP/SMTP with a Google app password: as a cloud deployment on Vercel serving several accounts (one connector URL per account), or as a local Claude Desktop extension for one account.
 
-User decisions (fixed):
-- **Where it runs:** Claude Desktop on a Mac, as a local server. Claude Code is a documented secondary option.
-- **Provider:** iCloud Mail, which may be @icloud.com/@me.com or an iCloud+ custom domain.
-- **Permissions:** full access with guardrails. Sending and permanent deletion are gated, and each can be switched off.
+This repository is a fork of `icloud-mail-mcp`. Sections 1 to 10 below are that project's spec and still describe the architecture, the hard rules and the tests; where they mention iCloud-specific behaviour, **section 0 (Gmail) takes precedence**.
 
-Research briefs with citations are in `/tmp/claude-0/-home-user/d5d09cc5-1bd8-5663-ae87-6e8def6cca8c/scratchpad/research-{icloud,mcp,mcpb,libs,infra}.md`. **Read the ones relevant to your task before coding.** They contain verified API shapes and pitfalls. The local test mail server is described in `test-infra/README.md`.
+## 0. Gmail (differences from the iCloud spec)
+
+User decisions (fixed): Gmail over IMAP/SMTP with app passwords (no OAuth / Gmail API); cloud-first so the Claude mobile apps can use it; one connector per account; personal Gmail and Google Workspace accounts.
+
+- **Servers and login:** `imap.gmail.com:993` (TLS) and `smtp.gmail.com:587` (STARTTLS). Env names `GMAIL_EMAIL`, `GMAIL_APP_PASSWORD` (cloud: `GMAIL_PASSWORD`), `GMAIL_IMAP_USER`, `GMAIL_SMTP_USER`, `GMAIL_KEYCHAIN_SERVICE` (`gmail-mail-mcp`). The login is the full address; there is no local-part fallback. Auth failures explain app passwords, 2-Step Verification and Workspace admin settings.
+- **Special folders:** Gmail advertises SPECIAL-USE. Without an override, the server attribute wins, then Gmail's own paths (`[Gmail]/Sent Mail`, `[Gmail]/Trash`, `[Gmail]/Drafts`, `[Gmail]/Spam`, and the `[Google Mail]/…` variants), then a name guess. Archive maps to the `\All` mailbox (`[Gmail]/All Mail`) and is never created on Gmail.
+- **Labels (X-GM-EXT-1):** summaries and `get_message` include `labels` (X-GM-LABELS; system labels shown without the backslash, user labels decoded from modified UTF-7 and sanitised). `label_messages` adds/removes labels with `UID STORE ±X-GM-LABELS`, sending user labels as quoted strings in modified UTF-7 (never imapflow's bare atoms, which break on spaces and allow token injection) and the system labels Inbox/Important/Starred as atoms; Sent, Drafts, Spam, Trash and `[Gmail]/…` are refused. The result is read back.
+- **Search:** `gmail_query` maps to `X-GM-RAW` (refused without X-GM-EXT-1). `all_mailboxes` searches only All Mail (every message once); Spam and Trash are reported as `excluded_matches`.
+- **Threads:** with X-GM-EXT-1 and an `\All` mailbox, `get_thread` fetches the seed's `X-GM-THRID` and searches All Mail for it; header-based discovery (§6.1 #4) is the fallback (seed in Spam/Trash, non-Gmail servers).
+- **Archive:** removes the `\Inbox` label (keeps every other label) instead of moving to All Mail, which would remove the label of the folder the messages were taken from.
+- **Permanent delete:** on Gmail, EXPUNGE in INBOX or a label folder only removes that label, so messages are first moved to Trash (MOVE with COPYUID) and expunged there; without new UIDs from Gmail nothing is deleted for good.
+- **Stars:** `\Flagged` is Gmail's star. Apple flag colours are not offered (`flag_color` is gone from the tools).
+- **Sent copies:** Gmail files submitted mail in Sent itself, so `MAIL_SAVE_SENT_COPY` defaults to false for Gmail hosts (true for other servers, e.g. the test server).
+- **Limits:** 25 MB per message (attachments ≤ 18 MB), 100 recipients per message over SMTP (`MAIL_MAX_RECIPIENTS` ≤ 100, default 50), defaults 100 recipients/hour and 400/day (Gmail: about 500/day, Workspace 2,000).
+- **Cloud accounts:** see §10 (as amended here). Route `/api/gmail/<account>` (`api/gmail/[account].js`); account names `[a-z0-9]{1,32}`, case-insensitive, no underscores so `GMAIL_<ACCOUNT>_<SUFFIX>` splits one way. Per account: `GMAIL_<ACCOUNT>_ACCESS_KEY` (≥ 32 chars, required; a missing, short or wrong key gets 404, the same answer as an unknown account), `_EMAIL`, `_PASSWORD`, `_IMAP_USER`, `_SMTP_USER`, `_FROM_ADDRESS`, `_FROM_NAME`, `_ALLOWED_FROM`, and `_MAIL_<SETTING>` for any `MAIL_*` setting. The service env is the global env minus every `GMAIL_*` variable and identity setting, plus the account's mapped variables and `MAIL_ACCOUNT_NAME`. Connector-header logins (`X-ICloud-*`) and the global `MCP_ACCESS_KEY` are gone. Services are cached per account (sha256 of its env as the cache key; at most 16; an evicted service is closed only once no request is using it).
 
 ---
+
+*The original iCloud spec follows. Its user decisions were: Claude Desktop on a Mac as a local server, iCloud Mail, and full access with guardrails (sending and permanent deletion gated, each switchable).*
 
 ## 1. Stack
 
@@ -415,7 +428,7 @@ Registered only if `MAIL_ALLOW_SEND` and not `MAIL_READ_ONLY`. Each description 
   - a "no-uidplus" profile that also omits UIDPLUS.
   - Run the move/archive/trash/special-folder/permanent-delete tests against the icloud profile too, and the expunge-guard tests against no-uidplus.
   - `npm run test:integration` must not pass silently without them: its globalSetup starts the profiles if needed and fails when they are still down, unless `ALLOW_PROFILE_SKIP=1`.
-  - iCloud behaviour Dovecot cannot imitate (name-guess conflicts, ghost `\Deleted` UIDs, failures between COPY and EXPUNGE, failed SEARCH, commands that never get an answer, login refusals with response codes, no STARTTLS) is tested against a scripted fake IMAP server (`test/helpers/fake-icloud-imap.ts`).
+  - iCloud behaviour Dovecot cannot imitate (name-guess conflicts, ghost `\Deleted` UIDs, failures between COPY and EXPUNGE, failed SEARCH, commands that never get an answer, login refusals with response codes, no STARTTLS) is tested against a scripted fake IMAP server (`test/helpers/fake-imap.ts`, which also has a Gmail mode with X-GM-EXT-1).
 - **Stdout cleanliness:** run a session that triggers an IMAP connection failure and assert that every stdout line is valid JSON-RPC.
 - **Bundle smoke test:** build the `.mcpb`, unzip it to a temp dir, run `node server/index.js` from there over stdio against test-infra, and call `tools/list` plus `list_mailboxes`.
 

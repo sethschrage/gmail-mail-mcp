@@ -61,6 +61,23 @@ describe('buildSearchObject', () => {
     expect(buildSearchObject({ minSizeKb: 100 }, { timeZone: TZ }).query.larger).toBe(102_399);
   });
 
+  it('sends gmail_query as X-GM-RAW (trimmed), combined with the other criteria', () => {
+    const b = buildSearchObject({ gmailQuery: '  from:amazon has:attachment newer_than:30d ', unread: true }, { timeZone: TZ, now: NOW });
+    expect(b.query).toEqual({ deleted: false, gmraw: 'from:amazon has:attachment newer_than:30d', seen: false });
+    expect(b.empty).toBe(false);
+    expect(buildSearchObject({ gmailQuery: '   ' }, { timeZone: TZ, now: NOW }).query).toEqual({ deleted: false });
+  });
+
+  it('refuses line breaks and control characters in gmail_query', () => {
+    expect(() => buildSearchObject({ gmailQuery: 'is:unread\r\nA1 DELETE INBOX' }, { timeZone: TZ, now: NOW })).toThrow(/gmail_query must not contain line breaks/);
+    expect(() => buildSearchObject({ gmailQuery: 'x\u0000' }, { timeZone: TZ, now: NOW })).toThrow(MailError);
+  });
+
+  it('hasCriteria counts gmail_query', () => {
+    expect(hasCriteria({ gmailQuery: 'is:starred' })).toBe(true);
+    expect(hasCriteria({ gmailQuery: ' ' })).toBe(false);
+  });
+
   it('hasCriteria ignores blanks', () => {
     expect(hasCriteria({ query: '  ', from: '' })).toBe(false);
     expect(hasCriteria({ unread: false })).toBe(true);
@@ -69,7 +86,7 @@ describe('buildSearchObject', () => {
 });
 
 describe('UID helpers', () => {
-  it('sorts numerically descending, unique (iCloud may return UIDs out of order)', () => {
+  it('sorts numerically descending, unique (servers may return UIDs out of order)', () => {
     expect(sortUidsDesc([10, 9, 100, 2, 10, 33])).toEqual([100, 33, 10, 9, 2]);
   });
 

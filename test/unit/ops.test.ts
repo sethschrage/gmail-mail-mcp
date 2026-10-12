@@ -139,7 +139,7 @@ describe('move and the expunge guard', () => {
     expect(c.calls[1]?.args).toEqual(['1,3', 'Archive', { uid: true }]);
   });
 
-  it('without MOVE but with UIDPLUS (iCloud): no guard needed, UID EXPUNGE only touches our UIDs', async () => {
+  it('without MOVE but with UIDPLUS: no guard needed, UID EXPUNGE only touches our UIDs', async () => {
     const c = new FakeMailboxClient([1, 2, 3], [2], ['UIDPLUS']);
     const r = await moveMessages(fakeImap(c), registry, box('INBOX'), [1], box('Archive'));
     expect(r).toMatchObject({ moved: 1, new_uids: { '1': 100 } });
@@ -235,14 +235,14 @@ describe('move without MOVE: failure after COPY', () => {
 describe('permanent delete', () => {
   it('with UIDPLUS: deletes only the verified UIDs', async () => {
     const c = new FakeMailboxClient([1, 2, 3], [3], ['UIDPLUS']);
-    const r = await deleteMessagesPermanently(fakeImap(c), registry, box('Deleted Messages'), [1, 4]);
-    expect(r).toEqual({ mailbox: 'Deleted Messages', deleted: 1, not_found: [4] });
+    const r = await deleteMessagesPermanently(fakeImap(c), registry, box('[Gmail]/Trash'), [1, 4]);
+    expect(r).toEqual({ mailbox: '[Gmail]/Trash', deleted: 1, not_found: [4] });
     expect(c.calls.at(-1)).toEqual({ method: 'messageDelete', args: ['1', { uid: true }] });
   });
 
   it('without UIDPLUS: guarded like moves', async () => {
     const c = new FakeMailboxClient([1, 2, 3], [3], ['MOVE']);
-    await expect(deleteMessagesPermanently(fakeImap(c), registry, box('Deleted Messages'), [1])).rejects.toMatchObject({ code: 'EXPUNGE_GUARD' });
+    await expect(deleteMessagesPermanently(fakeImap(c), registry, box('[Gmail]/Trash'), [1])).rejects.toMatchObject({ code: 'EXPUNGE_GUARD' });
     expect(c.methods()).not.toContain('messageDelete');
     const ok = new FakeMailboxClient([1, 2], [], ['MOVE']);
     expect((await deleteMessagesPermanently(fakeImap(ok), registry, box('X'), [1])).deleted).toBe(1);
@@ -309,16 +309,16 @@ describe('appendMessage without UIDPLUS', () => {
 
   it('looks the UID up by Message-ID and keeps it only for exactly one match', async () => {
     const one = appendClient({ uid: 7 }, [8]);
-    const r = await appendMessage(fakeImap(one.client as unknown as FakeMailboxClient), registry, 'Drafts', Buffer.from('x'), ['\\Draft'], undefined, '<id@icloud.com>');
+    const r = await appendMessage(fakeImap(one.client as unknown as FakeMailboxClient), registry, 'Drafts', Buffer.from('x'), ['\\Draft'], undefined, '<id@mail.gmail.com>');
     expect(r.uid).toBe(8);
-    expect(one.searches[0]).toEqual({ header: { 'message-id': '<id@icloud.com>' }, deleted: false });
+    expect(one.searches[0]).toEqual({ header: { 'message-id': '<id@mail.gmail.com>' }, deleted: false });
     const two = appendClient({ uid: 7 }, [8, 9]);
-    expect((await appendMessage(fakeImap(two.client as unknown as FakeMailboxClient), registry, 'Drafts', Buffer.from('x'), [], undefined, '<id@icloud.com>')).uid).toBeNull();
+    expect((await appendMessage(fakeImap(two.client as unknown as FakeMailboxClient), registry, 'Drafts', Buffer.from('x'), [], undefined, '<id@mail.gmail.com>')).uid).toBeNull();
   });
 
   it('trusts APPENDUID', async () => {
     const c = appendClient({ uid: 7, uidValidity: 1n }, [8]);
-    expect((await appendMessage(fakeImap(c.client as unknown as FakeMailboxClient), registry, 'Drafts', Buffer.from('x'), [], undefined, '<id@icloud.com>')).uid).toBe(7);
+    expect((await appendMessage(fakeImap(c.client as unknown as FakeMailboxClient), registry, 'Drafts', Buffer.from('x'), [], undefined, '<id@mail.gmail.com>')).uid).toBe(7);
     expect(c.searches).toHaveLength(0);
   });
 });

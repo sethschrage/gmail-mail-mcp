@@ -37,7 +37,7 @@ afterAll(() => {
   clearSecrets();
 });
 
-const base = { email: 'me@icloud.com', password: undefined, keychainService: 'gmail-mail-mcp', imapUser: undefined, smtpUser: 'me@icloud.com' };
+const base = { email: 'me@gmail.com', password: undefined, keychainService: 'gmail-mail-mcp', imapUser: undefined, smtpUser: 'me@gmail.com' };
 
 async function mailError(p: Promise<unknown>): Promise<MailError> {
   const e = await p.then(
@@ -62,9 +62,9 @@ describe('password resolution', () => {
     const p = new CredentialProvider(base, { platform: 'darwin', securityPath: fakeSecurity });
     expect(await p.getPassword()).toEqual({ password: 'abcd-efgh-ijkl-mnop', source: 'keychain' });
     const { readFileSync } = await import('node:fs');
-    expect(readFileSync(argsLog, 'utf8').trim().split('\n')).toEqual(['find-generic-password', '-s', 'gmail-mail-mcp', '-a', 'me@icloud.com', '-w']);
+    expect(readFileSync(argsLog, 'utf8').trim().split('\n')).toEqual(['find-generic-password', '-s', 'gmail-mail-mcp', '-a', 'me@gmail.com', '-w']);
     expect(redact('pw abcd-efgh-ijkl-mnop')).toBe('pw [REDACTED]');
-    expect(p.describeSource()).toMatch(/Keychain \(service "gmail-mail-mcp", account "me@icloud.com"\)/);
+    expect(p.describeSource()).toMatch(/Keychain \(service "gmail-mail-mcp", account "me@gmail.com"\)/);
   });
 
   it('caches the result and can be invalidated', async () => {
@@ -90,8 +90,9 @@ describe('password resolution', () => {
     const err = await mailError(p.getPassword());
     expect(err.code).toBe('CONFIG');
     expect(err.message).toMatch(/No Keychain item found for service "other-service"/);
-    expect(err.message).toContain('security add-generic-password -s other-service -a me@icloud.com -U -w');
-    expect(err.message).toMatch(/App-Specific Passwords/);
+    expect(err.message).toContain('security add-generic-password -s other-service -a me@gmail.com -U -w');
+    expect(err.message).toContain('Create an app password at https://myaccount.google.com/apppasswords');
+    expect(err.message).not.toMatch(/Apple|iCloud/);
   });
 
   it('handles an empty item, other failures and a missing binary', async () => {
@@ -102,7 +103,7 @@ describe('password resolution', () => {
 
   it('times out a hanging security call', async () => {
     const err = await mailError(
-      readKeychainPassword({ service: 'slow', account: 'me@icloud.com', securityPath: fakeSecurity, timeoutMs: 300, exec: defaultExecFile }),
+      readKeychainPassword({ service: 'slow', account: 'me@gmail.com', securityPath: fakeSecurity, timeoutMs: 300, exec: defaultExecFile }),
     );
     expect(err.message).toMatch(/timed out/);
   });

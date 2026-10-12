@@ -693,7 +693,10 @@ export class MailService {
     this.assertWritable('Archiving');
     const source = await this.mailboxes.resolve(params.mailbox);
     const uids = validateUids(params.uids);
-    if (await this.imap.hasCapability('X-GM-EXT-1')) {
+    // From Trash or Spam, removing the Inbox label would leave the messages where they are; a move
+    // to All Mail (below) is what takes them out, as Gmail's "Move to Inbox"/"Not spam" do.
+    const fromBin = source.specialUse === 'trash' || source.specialUse === 'junk';
+    if (!fromBin && (await this.imap.hasCapability('X-GM-EXT-1'))) {
       // Gmail's Archive removes the Inbox label and nothing else: moving to All Mail would instead
       // remove the label of the folder the messages were taken from (and keep them in the inbox).
       const allMail = (await this.mailboxes.resolveSpecial('archive'))?.path ?? '[Gmail]/All Mail';
@@ -703,12 +706,14 @@ export class MailService {
         async () => {
           const r = await labelMessages(this.imap, source, uids, { remove: ['Inbox'] });
           this.mailboxes.invalidateCounts();
-          const out: MoveResult = { source: source.path, destination: allMail, moved: r.affected, not_found: r.not_found };
+          const out: MoveResult = { source: source.path, destination: allMail, moved: r.changed, not_found: r.not_found };
+          const already = r.affected - r.changed;
           out.warning =
             r.not_applied.length > 0
               ? `${r.not_applied.length} message(s) still have the Inbox label: ${r.not_applied.map((n) => n.uid).join(', ')}.`
               : 'Archived the Gmail way: the Inbox label was removed. The messages keep their other labels and stay in All Mail' +
-                (source.specialUse === 'inbox' ? ' (their UIDs there differ from the INBOX UIDs; search All Mail to find them).' : `, and in "${source.path}" with the same UIDs.`);
+                (source.specialUse === 'inbox' ? ' (their UIDs there differ from the INBOX UIDs; search All Mail to find them).' : `, and in "${source.path}" with the same UIDs.`) +
+                (already > 0 ? ` ${already} message(s) were not in the inbox, so nothing changed for them.` : '');
           return out;
         },
         (r) => ({ moved: r.moved, not_found: r.not_found }),

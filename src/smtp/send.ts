@@ -395,7 +395,7 @@ export class Sender {
   private async postSend(built: BuiltMessage, options: SendOptions): Promise<Record<string, unknown>> {
     const { config } = this.deps;
     const work = detachedContext(async () => {
-      const copy = config.saveSentCopy ? await this.saveSentCopy(built) : { sent_copy_saved: false, sent_copy_note: 'MAIL_SAVE_SENT_COPY is off.' };
+      const copy = config.saveSentCopy ? await this.saveSentCopy(built) : { sent_copy_saved: false, sent_copy_note: 'Gmail files sent mail in Sent itself, so no extra copy was saved (MAIL_SAVE_SENT_COPY is off).' };
       let extra: Record<string, unknown> = {};
       if (options.afterSend) {
         try {

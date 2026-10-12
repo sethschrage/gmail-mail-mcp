@@ -140,7 +140,7 @@ export class CredentialProvider {
       throw new MailError('CONFIG', `GMAIL_EMAIL is not set, so the Keychain entry cannot be looked up. ${APP_PASSWORD_HELP}`);
     }
     if (this.platform !== 'darwin') {
-      throw new MailError('CONFIG', `No app-specific password is configured (GMAIL_APP_PASSWORD is not set, and the Keychain fallback only works on macOS). ${APP_PASSWORD_HELP}`);
+      throw new MailError('CONFIG', `No app password is configured (GMAIL_APP_PASSWORD is not set, and the Keychain fallback only works on macOS). ${APP_PASSWORD_HELP}`);
     }
     const password = await readKeychainPassword({
       service: this.config.keychainService,
@@ -181,7 +181,7 @@ export async function readKeychainPassword(opts: {
     if (result.code === 44 || /could not be found/i.test(result.stderr)) {
       throw new MailError(
         'CONFIG',
-        `No Keychain item found for service "${opts.service}" and account "${opts.account}". Add it with: ${helpFor} (you will be prompted for the app-specific password). ${APP_PASSWORD_HELP}`,
+        `No Keychain item found for service "${opts.service}" and account "${opts.account}". Add it with: ${helpFor} (you will be prompted for the app password). ${APP_PASSWORD_HELP}`,
       );
     }
     throw new MailError(

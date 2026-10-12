@@ -14,7 +14,7 @@ import { attachmentSaveError, createUniqueFile, fallbackAttachmentName, sanitize
 import { sanitizeInline } from '../safety/untrusted.js';
 import { displayName, formatAddressForDisplay, type EmailAddress } from '../smtp/address.js';
 import { flagState, type FlagColor, type FlagState } from './flags.js';
-import { displayLabels } from './labels.js';
+import { displayLabels, withImplicitLabel } from './labels.js';
 import {
   collectAttachments,
   decodePartialBody,
@@ -98,8 +98,9 @@ export function messageTime(msg: Pick<FetchMessageObject, 'envelope' | 'internal
 }
 
 /** Display labels (sanitised: label names are user- and sender-influenced text), or null without X-GM-EXT-1. */
-export function labelsOf(msg: Pick<FetchMessageObject, 'labels'>): string[] | null {
-  return msg.labels ? displayLabels(msg.labels).map((l) => sanitizeInline(l, 200)) : null;
+export function labelsOf(msg: Pick<FetchMessageObject, 'labels'>, mailboxPath: string): string[] | null {
+  const labels = withImplicitLabel(msg.labels, mailboxPath);
+  return labels ? displayLabels(labels).map((l) => sanitizeInline(l, 200)) : null;
 }
 
 export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZone: string): SummaryRecord {
@@ -127,7 +128,7 @@ export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZo
   if (state.flag_color) summary.flag_color = state.flag_color;
   if (state.answered) summary.answered = true;
   if (state.draft) summary.draft = true;
-  const labels = labelsOf(msg);
+  const labels = labelsOf(msg, mailbox);
   if (labels?.length) summary.labels = labels;
   // Keep a stable key order (snippet last), as before.
   const ordered: MessageSummary = {
@@ -390,7 +391,7 @@ export async function fetchFullMessage(
     },
     flags: flagState(msg.flags),
     rawFlags: [...(msg.flags ?? [])],
-    labels: labelsOf(msg),
+    labels: labelsOf(msg, mailbox),
     size: typeof msg.size === 'number' ? msg.size : null,
     listId: headers.get('list-id')?.[0] ?? null,
     listUnsubscribe: headers.get('list-unsubscribe')?.[0] ?? null,

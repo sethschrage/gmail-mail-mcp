@@ -15,7 +15,7 @@ function exec(result: Partial<ExecFileResult>, calls: Array<{ file: string; args
   };
 }
 
-const req = { title: 'iCloud Mail: send this email?', message: 'To: a@example.com', action: 'Send' as const };
+const req = { title: 'Gmail: send this email?', message: 'To: a@example.com', action: 'Send' as const };
 
 describe('native confirmation dialog', () => {
   it('passes all text as argv to a fixed script (never interpolated)', async () => {
@@ -122,7 +122,7 @@ describe('native confirmation dialog', () => {
 describe('dialog text', () => {
   it('shows From, final recipients incl. Bcc with counts, subject, the body start and attachment names', () => {
     const text = buildSendConfirmationMessage({
-      from: { name: 'Me', address: 'me@icloud.com' },
+      from: { name: 'Me', address: 'me@gmail.com' },
       to: [{ address: 'a@example.com' }],
       cc: [{ address: 'b@example.com' }],
       bcc: [{ address: 'c@example.com' }],
@@ -131,7 +131,7 @@ describe('dialog text', () => {
       attachments: [{ name: 'report.pdf' }],
     });
     expect(text).toContain('Recipients: 3 (To 1, Cc 1, Bcc 1)');
-    expect(text).toContain('From: me@icloud.com (Me)');
+    expect(text).toContain('From: me@gmail.com (Me)');
     expect(text).toContain('To (1): a@example.com');
     expect(text).toContain('Cc (1): b@example.com');
     expect(text).toContain('Bcc (1): c@example.com');
@@ -143,7 +143,7 @@ describe('dialog text', () => {
 
   // confirm-1 (security): hostile reply recipients cannot hide the real address or forge lines.
   it('always shows the real address, never lets a display name forge lines, and warns on look-alike names', () => {
-    const base = { from: { address: 'me@icloud.com' }, cc: [], bcc: [], subject: 'Re: Q3', body: 'numbers', attachments: [] };
+    const base = { from: { address: 'me@gmail.com' }, cc: [], bcc: [], subject: 'Re: Q3', body: 'numbers', attachments: [] };
     const dots = buildSendConfirmationMessage({ ...base, to: [{ name: `Your Boss (boss@company.example)${'.'.repeat(600)}`, address: 'attacker@evil.test' }] });
     expect(dots).toContain('attacker@evil.test');
     expect(dots).toMatch(/WARNING: a display name contains a different email address/);
@@ -156,7 +156,7 @@ describe('dialog text', () => {
 
   // confirm-1 (smtp): a 250-character name does not push a later recipient out; long lists say how many are hidden.
   it('lists every recipient address and says when a list was shortened', () => {
-    const base = { from: { address: 'me@icloud.com' }, cc: [], bcc: [], subject: 's', body: 'b', attachments: [] };
+    const base = { from: { address: 'me@gmail.com' }, cc: [], bcc: [], subject: 's', body: 'b', attachments: [] };
     const two = buildSendConfirmationMessage({ ...base, to: [{ name: 'Alice Nguyen', address: 'alice@example.com' }, { name: `Accounts Payable ${'x'.repeat(250)}`, address: 'attacker@evil.test' }] });
     expect(two).toContain('alice@example.com');
     expect(two).toContain('attacker@evil.test');
@@ -169,7 +169,7 @@ describe('dialog text', () => {
   // confirm-2: model-supplied input cannot push Bcc, Reply-To, attachments or the subject out of view.
   it('keeps every field visible with hostile long input (poc5)', () => {
     const text = buildSendConfirmationMessage({
-      from: { name: 'F'.repeat(250), address: 'me@icloud.com' },
+      from: { name: 'F'.repeat(250), address: 'me@gmail.com' },
       to: [{ name: 'N'.repeat(250), address: 'ap.team@example-corp.example' }, { address: 'exfil@attacker.example' }],
       cc: Array.from({ length: 10 }, (_, i) => ({ address: `colleague${i}.with.a.long.address@example-corp.example` })),
       bcc: [{ address: 'archive.mailbox.for.finance.department@example-corp.example' }, { address: 'second-exfil@attacker.example' }],
@@ -184,8 +184,8 @@ describe('dialog text', () => {
   });
 
   it('describes permanent deletion', () => {
-    const text = buildDeleteConfirmationMessage({ mailbox: 'Deleted Messages', count: 12, subjects: Array.from({ length: 12 }, (_, i) => `S${i}`) });
-    expect(text).toMatch(/PERMANENTLY delete 12 messages from "Deleted Messages"/);
+    const text = buildDeleteConfirmationMessage({ mailbox: '[Gmail]/Trash', count: 12, subjects: Array.from({ length: 12 }, (_, i) => `S${i}`) });
+    expect(text).toMatch(/PERMANENTLY delete 12 messages from "\[Gmail\]\/Trash"/);
     expect(text).toContain('… and 2 more');
   });
 });

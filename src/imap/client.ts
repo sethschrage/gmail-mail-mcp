@@ -47,7 +47,7 @@ export function authFailureMessage(service: 'IMAP' | 'SMTP', host: string, users
     `(3) the login must be the full Gmail or Google Workspace address${cloud ? '' : ' ("Gmail address" in the extension settings)'}; ` +
     '(4) app passwords need 2-Step Verification on the Google Account, and a Workspace admin can turn app passwords off (then this connector cannot be used for that account); ' +
     imapOff +
-    passwordHelp()
+    `\n${passwordHelp()}`
   );
 }
 

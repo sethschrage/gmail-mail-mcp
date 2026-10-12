@@ -16,9 +16,10 @@ function message(overrides: Partial<FullMessage> = {}): FullMessage {
     date: '2026-09-01T20:14:00-07:00',
     time: 0,
     subject: 'Urgent: action required\r\nX-Injected: yes',
-    addresses: { from: [{ name: 'IT Support', address: 'it@evil.test' }], sender: [], replyTo: [], to: [{ name: '', address: 'me@icloud.com' }], cc: [], bcc: [] },
+    addresses: { from: [{ name: 'IT Support', address: 'it@evil.test' }], sender: [], replyTo: [], to: [{ name: '', address: 'me@gmail.com' }], cc: [], bcc: [] },
     flags: { unread: true, flagged: true, flag_color: 'purple', answered: false, draft: false, forwarded: false },
     rawFlags: ['\\Flagged'],
+    labels: null,
     size: 1017,
     listId: null,
     listUnsubscribe: null,
@@ -40,11 +41,23 @@ describe('get_message rendering', () => {
     expect(text).toContain('Subject: Urgent: action required X-Injected: yes');
     expect(text).not.toMatch(/^X-Injected/m);
     expect(text).toContain('From: IT Support <it@evil.test>');
-    expect(text).toContain('Flags: unread, flagged (purple)');
+    // Gmail has stars, not Apple's flag colours.
+    expect(text).toContain('Flags: unread, starred\n');
+    expect(text).not.toContain('purple');
+    // No X-GM-EXT-1: no Labels line at all.
+    expect(text).not.toMatch(/^Labels:/m);
     expect(text).toContain('- part 2: "../evil .pdf" (application/pdf, about 692 B)');
     expect(text.split(UNTRUSTED_END).length - 1).toBe(1);
     expect(text.indexOf('attacker@evil.test')).toBeGreaterThan(text.indexOf(UNTRUSTED_BEGIN));
     expect(text.indexOf('attacker@evil.test')).toBeLessThan(text.indexOf(UNTRUSTED_END));
+  });
+
+  it('shows Gmail labels, and says when a message has none (archived)', () => {
+    const labelled = renderMessageView(buildMessageView(message({ labels: ['Important', 'Inbox', 'Receipts'] }), 20_000));
+    expect(labelled).toContain('Flags: unread, starred\nLabels: Important, Inbox, Receipts\nSize:');
+    expect(renderMessageView(buildMessageView(message({ labels: [] }), 20_000))).toContain('Labels: (none: archived)');
+    const unflagged = renderMessageView(buildMessageView(message({ flags: { unread: false, flagged: false, flag_color: null, answered: true, draft: false, forwarded: false } }), 20_000));
+    expect(unflagged).toContain('Flags: read, answered\n');
   });
 
   it('reports truncation with the total', () => {
