@@ -297,13 +297,25 @@ describe('Gmail labels', () => {
     expect(none).toMatchObject({ affected: 1, changed: 0 });
   });
 
-  it('reports messages that left the folder because its own label was removed', async () => {
-    const { s, srv } = await gmail([], { uids: { Receipts: [3] }, labels: { 'Receipts/3': ['Receipts', '\\Inbox'] } });
-    const r = await s.labelMessages({ mailbox: 'Receipts', uids: [3], remove: ['Receipts'] });
-    expect(storeLines(srv)).toEqual(['UID STORE 3 -X-GM-LABELS ("Receipts")']);
+  it('removes the open folder\'s own label by moving to All Mail (Gmail ignores that STORE), other labels by STORE', async () => {
+    const { s, srv } = await gmail([], { uids: { Receipts: [3] }, labels: { 'Receipts/3': ['Receipts', 'Old', '\\Inbox'] } });
+    const r = await s.labelMessages({ mailbox: 'Receipts', uids: [3], remove: ['Receipts', 'Old'] });
+    expect(storeLines(srv)).toEqual(['UID STORE 3 -X-GM-LABELS ("Old")']);
+    expect(srv.commands.some((c) => c.includes('UID COPY 3 "[Gmail]/All Mail"'))).toBe(true);
     expect(srv.uidsIn('Receipts')).toEqual([]);
     expect(r.left_mailbox).toEqual([3]);
+    expect(r.not_applied).toEqual([]);
     expect(r.note).toMatch(/left "Receipts".*still in All Mail/);
+  });
+
+  it('refuses to remove the open folder\'s label without an All Mail folder, changing nothing', async () => {
+    // A plain STORE would be silently ignored by Gmail (what failed live), so it is not attempted.
+    const { srv } = await gmail([], { uids: { Receipts: [3] }, labels: { 'Receipts/3': ['Receipts'] } });
+    const { labelMessages } = await import('../../src/imap/labels.js');
+    const svcAny = svc as unknown as { imap: Parameters<typeof labelMessages>[0]; mailboxes: { resolve(n: string): Promise<Parameters<typeof labelMessages>[1]> } };
+    const mb = await svcAny.mailboxes.resolve('Receipts');
+    await expect(labelMessages(svcAny.imap, mb, [3], { remove: ['Receipts'] })).rejects.toMatchObject({ code: 'SERVER' });
+    expect(srv.uidsIn('Receipts')).toEqual([3]);
   });
 
   it('refuses reserved and invalid labels before sending anything', async () => {
@@ -350,15 +362,14 @@ describe('gmail_query (X-GM-RAW)', () => {
 describe('Gmail archive and permanent deletion', () => {
   const gmail = (opts: FakeOptions, env: Record<string, string> = {}) => setup(['Receipts'], { caps: GMAIL_CAPS, ...opts }, env, GMAIL_FOLDERS);
 
-  it('archive_messages removes the Inbox label instead of moving', async () => {
+  it('archive_messages from INBOX moves to All Mail (Gmail ignores removing \\Inbox while INBOX is selected)', async () => {
     const { s, srv } = await gmail({ uids: { INBOX: [7, 8] }, labels: { 'INBOX/7': ['\\Inbox', 'Receipts'], 'INBOX/8': ['\\Inbox'] } });
     const r = await s.archiveMessages({ mailbox: 'INBOX', uids: [7] });
     expect(r).toMatchObject({ source: 'INBOX', destination: '[Gmail]/All Mail', moved: 1, not_found: [] });
     expect(r.warning).toMatch(/Inbox label was removed/);
     expect(r.warning).not.toMatch(/not in the inbox/);
-    expect(srv.commands.some((c) => /UID (COPY|MOVE|EXPUNGE)/.test(c))).toBe(false);
-    expect(srv.labelStores).toEqual([{ mailbox: 'INBOX', uids: [7], op: '-', items: [{ type: 'ATOM', value: '\\Inbox' }] }]);
-    expect(srv.labelsOf('INBOX', 7)).toEqual(['Receipts']);
+    expect(srv.labelStores).toEqual([]);
+    expect(srv.commands.some((c) => c.includes('UID COPY 7 "[Gmail]/All Mail"'))).toBe(true);
     expect(srv.uidsIn('INBOX')).toEqual([8]);
   });
 

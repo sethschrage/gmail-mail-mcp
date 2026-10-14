@@ -99,7 +99,8 @@ export interface MarkedMessage {
   uid: number;
   unread: boolean;
   flagged: boolean;
-  flag_color: FlagColor | null;
+  /** Only when a colour was requested (not offered on Gmail's tool surface). */
+  flag_color?: FlagColor | null;
 }
 
 /** Per-message states are listed only for small calls; larger ones get the counts. */
@@ -146,7 +147,7 @@ export async function markMessages(imap: ImapManager, mailbox: MailboxInfo, uids
       const messages: MarkedMessage[] = after
         .map((m) => {
           const s = flagState(m.flags);
-          return { uid: m.uid, unread: s.unread, flagged: s.flagged, flag_color: s.flag_color };
+          return { uid: m.uid, unread: s.unread, flagged: s.flagged, ...(req.flagColor !== undefined ? { flag_color: s.flag_color } : {}) };
         })
         .sort((a, b) => a.uid - b.uid);
       const notApplied: Array<{ uid: number; reason: string }> = [];

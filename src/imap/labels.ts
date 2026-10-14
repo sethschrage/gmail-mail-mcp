@@ -7,6 +7,11 @@
  * Claude copied out of an email, say) add arbitrary tokens to the command. User labels go out as
  * quoted IMAP strings in modified UTF-7 (RFC 3501 §5.1.3), the same encoding Gmail uses for label
  * folder names; the few system labels Gmail accepts here go out as their fixed backslash atoms.
+ *
+ * Gmail ignores a STORE that removes the label of the selected folder (e.g. -X-GM-LABELS (\Inbox)
+ * while INBOX is selected: verified live). So removing that one label is done the way Gmail's own
+ * IMAP model does it: MOVE to All Mail, which drops exactly the source folder's label and keeps the
+ * others. Labels to add and other labels to remove still go through STORE first.
  */
 import type { ImapFlow } from 'imapflow';
 import { MailError } from '../errors.js';
@@ -142,6 +147,8 @@ export function labelToken(input: string): LabelToken {
 export interface LabelRequest {
   add?: readonly string[] | undefined;
   remove?: readonly string[] | undefined;
+  /** All Mail's path; needed when the selected folder's own label is removed (see the module comment). */
+  allMailPath?: string | undefined;
 }
 
 export interface LabelResult {
@@ -190,6 +197,12 @@ export async function labelMessages(imap: ImapManager, mailbox: MailboxInfo, uid
   if (!(await imap.hasCapability('X-GM-EXT-1'))) {
     throw new MailError('INVALID_INPUT', 'Labels need a Gmail server (X-GM-EXT-1), and this server is not one. Use move_messages to file mail in folders instead.');
   }
+  const ownLabel = implicitLabelOf(mailbox.path);
+  const removesOwn = ownLabel !== null && remove.some((t) => t.reported.toLowerCase() === ownLabel.toLowerCase());
+  const storeRemove = removesOwn ? remove.filter((t) => t.reported.toLowerCase() !== ownLabel.toLowerCase()) : remove;
+  if (removesOwn && !req.allMailPath) {
+    throw new MailError('SERVER', `Removing the "${displayLabel(ownLabel)}" label from inside "${mailbox.path}" needs Gmail's All Mail folder, which was not found.`);
+  }
   return imap.withMailbox(
     mailbox.path,
     async (client) => {
@@ -201,14 +214,16 @@ export async function labelMessages(imap: ImapManager, mailbox: MailboxInfo, uid
       const labelsBefore = (m: (typeof before)[number]): Set<string> | undefined => withImplicitLabel(m.labels, mailbox.path);
       base.changed = before.filter((m) => add.some((t) => !has(labelsBefore(m), t)) || remove.some((t) => has(labelsBefore(m), t))).length;
       await storeLabels(client, found, '+', add);
-      await storeLabels(client, found, '-', remove);
+      await storeLabels(client, found, '-', storeRemove);
+      if (removesOwn && req.allMailPath) await client.messageMove(toSequenceSet(found), req.allMailPath, { uid: true });
       const after = await client.fetchAll(toSequenceSet(found), { uid: true, labels: true }, { uid: true });
       const seen = new Set(after.map((m) => m.uid));
       const leftMailbox = found.filter((u) => !seen.has(u));
       for (const m of after) {
         const reasons: string[] = [];
         for (const t of add) if (!has(withImplicitLabel(m.labels, mailbox.path), t)) reasons.push(`"${t.name}" was not added`);
-        for (const t of remove) if (has(m.labels, t)) reasons.push(`"${t.name}" is still set`);
+        // A message still in this folder still has this folder's label, whatever X-GM-LABELS says.
+        for (const t of remove) if (has(withImplicitLabel(m.labels, mailbox.path), t)) reasons.push(`"${t.name}" is still set`);
         if (reasons.length) base.not_applied.push({ uid: m.uid, reason: reasons.join('; ') });
       }
       if (after.length <= LABEL_DETAIL_MAX) {

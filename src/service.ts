@@ -657,7 +657,7 @@ export class MailService {
       { tool: 'label_messages', mailbox: mb.path, uids, add: params.add, remove: params.remove },
       async () => {
         try {
-          return await labelMessages(this.imap, mb, uids, { add: params.add, remove: params.remove });
+          return await labelMessages(this.imap, mb, uids, { add: params.add, remove: params.remove, allMailPath: (await this.mailboxes.resolveSpecial('archive'))?.path });
         } finally {
           // A new label is a new folder, and removing the open folder's label changes its counts.
           this.mailboxes.invalidate();
@@ -706,7 +706,7 @@ export class MailService {
       return this.audited(
         { tool: 'archive_messages', mailbox: source.path, uids, destination: allMail },
         async () => {
-          const r = await labelMessages(this.imap, source, uids, { remove: ['Inbox'] });
+          const r = await labelMessages(this.imap, source, uids, { remove: ['Inbox'], allMailPath: (await this.mailboxes.resolveSpecial('archive'))?.path });
           this.mailboxes.invalidateCounts();
           const out: MoveResult = { source: source.path, destination: allMail, moved: r.changed, not_found: r.not_found };
           const already = r.affected - r.changed;

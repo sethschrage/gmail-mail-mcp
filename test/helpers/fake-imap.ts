@@ -7,8 +7,9 @@
  * between COPY and EXPUNGE, commands that never get an answer and login refusals with response codes.
  *
  * With X-GM-EXT-1 in `caps` (see GMAIL_CAPS) it also behaves like Gmail for labels: FETCH responses
- * carry X-GM-LABELS, and UID STORE +X-GM-LABELS / -X-GM-LABELS changes them (removing the label of
- * the selected folder, \Inbox in INBOX, takes the message out of that folder, as Gmail does).
+ * carry X-GM-LABELS, and UID STORE +X-GM-LABELS / -X-GM-LABELS changes them. Like real Gmail
+ * (verified live), a STORE that removes the selected folder's own label (\Inbox in INBOX) is
+ * ignored: that label goes away only when the message is moved or expunged out of the folder.
  * X-GM-THRID is reported in FETCH responses and understood by SEARCH.
  * No TLS: clients must set IMAP_ALLOW_PLAINTEXT=true (or expect STARTTLS to be required).
  */
@@ -304,13 +305,8 @@ export async function startFakeImap(folders: FakeFolder[], opts: FakeOptions = {
               for (const it of items) {
                 const at = list.findIndex((l) => l.toLowerCase() === it.value.toLowerCase());
                 if (op === '+' && at < 0) list.push(it.value);
-                if (op === '-' && at >= 0) list.splice(at, 1);
-              }
-              // Without the label of the open folder the message is no longer in it.
-              if (op === '-' && !list.some((l) => l.toLowerCase() === shown.toLowerCase())) {
-                const seq = (uids[selected] ?? []).indexOf(u) + 1;
-                uids[selected] = (uids[selected] ?? []).filter((x) => x !== u);
-                if (seq > 0) w(`* ${seq} EXPUNGE`);
+                // Gmail ignores removing the open folder's own label with STORE.
+                if (op === '-' && at >= 0 && it.value.toLowerCase() !== shown.toLowerCase()) list.splice(at, 1);
               }
             }
             w(`${tag} OK store done`);

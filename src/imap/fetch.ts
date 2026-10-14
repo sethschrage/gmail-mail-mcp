@@ -125,7 +125,6 @@ export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZo
   if (cc.length) summary.cc = cc.slice(0, SUMMARY_MAX_ADDRESSES);
   if (cc.length > SUMMARY_MAX_ADDRESSES) summary.cc_count = cc.length;
   if (state.flagged) summary.flagged = true;
-  if (state.flag_color) summary.flag_color = state.flag_color;
   if (state.answered) summary.answered = true;
   if (state.draft) summary.draft = true;
   const labels = labelsOf(msg, mailbox);
@@ -143,7 +142,6 @@ export function toSummaryRecord(mailbox: string, msg: FetchMessageObject, timeZo
     subject: summary.subject,
     unread: summary.unread,
     ...(summary.flagged ? { flagged: true as const } : {}),
-    ...(summary.flag_color ? { flag_color: summary.flag_color } : {}),
     ...(summary.answered ? { answered: true as const } : {}),
     ...(summary.draft ? { draft: true as const } : {}),
     ...(summary.labels ? { labels: summary.labels } : {}),
