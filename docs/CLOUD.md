@@ -161,7 +161,7 @@ run at once and each cold start forgets in-memory counts, so the counts live in 
 
 - Every instance counts in the same place, per account (keyed by a hash of the address).
 - **It fails closed:** if Upstash can't be reached, nothing is sent (drafts still work).
-- Counters use a sliding window, so a burst at the top of the hour can't double the limit.
+- Every send is recorded with its time (one sorted set per limit), so the limits hold over any exact rolling hour or day, not just per clock hour.
 - With `MAIL_RATE_LIMIT_STORE=memory` each instance counts on its own instead (weaker, no setup).
 
 ## Security notes

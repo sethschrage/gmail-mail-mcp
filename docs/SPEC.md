@@ -474,7 +474,7 @@ A second entry point serves the same tools over stateless Streamable HTTP from a
   - The `attachments` (local files) parameter is removed from send_email, reply_to_message and save_draft.
   - Forwarding attachments from the mailbox still works.
 - **Sending:** there is no Mac dialog, and `MAIL_CONFIRM_DIALOG` is a configuration error in the cloud. Send and recipient limits are also counted in Upstash Redis (`src/quota.ts`):
-  - sliding window;
+  - exact rolling windows (one sorted set per limit, ZADD/ZRANGEBYSCORE; ported from icloud-mail-mcp 793324a);
   - increment-then-rollback when over a limit;
   - released when a send fails;
   - fail closed when Upstash is unreachable.

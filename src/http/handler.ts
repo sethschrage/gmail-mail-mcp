@@ -119,6 +119,44 @@ export function loginCacheKey(parts: readonly string[]): string {
   return createHash('sha256').update(parts.join('\u0000')).digest('hex');
 }
 
+/**
+ * Call `done` once the response body has been fully read, cancelled or failed (immediately when
+ * there is none). A streamed (SSE) tool result is still being produced after fetch() returns, so
+ * the service behind it must not be closed before then.
+ */
+function onBodyDone(response: Response, done: () => void): Response {
+  if (!response.body) {
+    done();
+    return response;
+  }
+  const reader = response.body.getReader();
+  let finished = false;
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    done();
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          finish();
+          controller.close();
+        } else controller.enqueue(chunk.value);
+      } catch (err) {
+        finish();
+        controller.error(err);
+      }
+    },
+    async cancel(reason) {
+      finish();
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -230,20 +268,24 @@ export function createCloudHandler(options: CloudHandlerOptions = {}): CloudHand
       return json({ error: 'not found' }, 404);
     }
     let entry: CacheEntry | undefined;
+    let released = false;
+    // Runs once the response body is done (or the request failed), not when fetch() returns.
+    const release = (): void => {
+      if (released || !entry) return;
+      released = true;
+      entry.inFlight--;
+      if (entry.evicted && entry.inFlight === 0) closeNow(entry);
+    };
     try {
       entry = entryFor(account);
       entry.inFlight++;
       const response = await entry.mcp.fetch(request);
       logger.info('MCP request', { account, method: request.method, status: response.status, ms: Date.now() - started });
-      return response;
+      return onBodyDone(response, release);
     } catch (err) {
+      release();
       logger.error('MCP request failed', { account, err: redact(errorMessage(err)) });
       return json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Internal error' } }, 500);
-    } finally {
-      if (entry) {
-        entry.inFlight--;
-        if (entry.evicted && entry.inFlight === 0) closeNow(entry);
-      }
     }
   };
 

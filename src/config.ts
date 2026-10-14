@@ -431,8 +431,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadCo
     } else quotaStore = { kind: 'missing' };
   }
 
-  // In the cloud the Vercel function's own limit (vercel.json maxDuration, 60 s) must come later.
-  const operationTimeoutSeconds = int('MAIL_OPERATION_TIMEOUT_SECONDS', cloud ? 50 : 120, 5, 3600, { lenient: true });
+  // In the cloud the Vercel function's own limit (vercel.json maxDuration, 60 s) must come later,
+  // so a longer setting is capped at 50 s (Vercel would otherwise cut the call off with a 504).
+  const operationTimeoutSeconds = int('MAIL_OPERATION_TIMEOUT_SECONDS', cloud ? 50 : 120, 5, cloud ? 50 : 3600, { lenient: true });
 
   const logLevelRaw = str('MAIL_LOG_LEVEL');
   let logLevel: LogLevel = 'warn';

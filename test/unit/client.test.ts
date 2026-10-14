@@ -283,7 +283,7 @@ describe('ImapManager', () => {
 
   it('maps connection failures to friendly errors', async () => {
     const { m } = manager({ GMAIL_EMAIL: 'john@custom.dev' }, { failConnect: Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:993'), { code: 'ECONNREFUSED' }) });
-    await expect(m.connection()).rejects.toMatchObject({ code: 'CONNECTION', message: expect.stringMatching(/Could not talk to the IMAP server imap\.gmail\.com:993 \(ECONNREFUSED\)\. Check the internet connection; Gmail may also be temporarily unavailable/) as string });
+    await expect(m.connection()).rejects.toMatchObject({ code: 'CONNECTION', message: expect.stringMatching(/Could not talk to the IMAP server imap\.gmail\.com:993 \(ECONNREFUSED\)\. Check the Mac's internet connection; Gmail may also be temporarily unavailable/) as string });
   });
 
   it('trusts the extra CA from MAIL_TLS_CA_FILE in addition to the system roots', () => {
