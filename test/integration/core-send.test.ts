@@ -306,10 +306,10 @@ describe('authentication failures', () => {
   it('IMAP: wrong password gives the friendly app-specific-password guidance', async () => {
     const bad = createTestService(dirs, { GMAIL_APP_PASSWORD: 'wrong-password' });
     try {
-      const err = await expectMailError(bad.listMailboxes(), 'AUTH', /app-specific password/);
+      const err = await expectMailError(bad.listMailboxes(), 'AUTH', /app password/);
       expect(err.message).toMatch(/revoked/);
-      expect(err.message).toMatch(/@icloud\.com address/);
-      expect(err.message).toMatch(/two-factor/);
+      expect(err.message).toMatch(/full Gmail or Google Workspace address/);
+      expect(err.message).toMatch(/2-Step Verification/);
       expect(err.message).not.toContain('wrong-password');
       // Not an icloud.com/me.com/mac.com address: no local-part retry.
       expect(err.message).toContain('"testuser@icloud.test"');
@@ -326,7 +326,7 @@ describe('authentication failures', () => {
     const bad = createTestService(dirs, { GMAIL_APP_PASSWORD: 'wrong-password' });
     try {
       const err = await expectMailError(bad.sendEmail({ to: ['friend@example.com'], subject: 'x', body: 'x' }), 'AUTH', /SMTP .*rejected the login/);
-      expect(err.message).toMatch(/full iCloud Mail address/);
+      expect(err.message).toMatch(/full Gmail or Google Workspace address/);
       expect(err.message).not.toContain('wrong-password');
     } finally {
       await bad.close();
@@ -347,7 +347,7 @@ describe('authentication failures', () => {
     const empty = createTestService(dirs, { GMAIL_EMAIL: '', GMAIL_APP_PASSWORD: '${user_config.app_specific_password}' });
     try {
       await expectMailError(empty.listMailboxes(), 'CONFIG', /GMAIL_EMAIL is not set/);
-      await expectMailError(empty.sendEmail({ to: ['a@example.com'], subject: 'x', body: 'x' }), 'CONFIG', /App-Specific Passwords/);
+      await expectMailError(empty.sendEmail({ to: ['a@example.com'], subject: 'x', body: 'x' }), 'CONFIG', /myaccount\.google\.com\/apppasswords/);
       const info = await empty.getAccountInfo();
       expect(info['status']).toBe('not configured');
       expect(info['config_errors']).toEqual([expect.stringMatching(/GMAIL_EMAIL/)]);

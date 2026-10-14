@@ -32,7 +32,7 @@ let home: string;
 let packed: PackResult;
 let manifest: McpbManifestAny;
 
-const REQUIRED_ONLY: McpbUserConfigValues = { icloud_email: ACCOUNT, app_specific_password: PASSWORD };
+const REQUIRED_ONLY: McpbUserConfigValues = { gmail_address: ACCOUNT, app_password: PASSWORD };
 
 /** Server endpoints and trust for test-infra: the only values not coming from the manifest. */
 function infraEnv(): Record<string, string> {
@@ -77,15 +77,15 @@ interface AccountInfo {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'icloud-mail-bundle-'));
-  unpacked = path.join(tmp, 'Claude Extensions', 'local.mcpb.seth.icloud-mail');
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'gmail-mail-bundle-'));
+  unpacked = path.join(tmp, 'Claude Extensions', 'local.mcpb.seth.gmail-mail');
   home = path.join(tmp, 'home');
   mkdirSync(path.join(home, 'Documents'), { recursive: true });
   writeFileSync(path.join(home, 'Documents', 'agenda.txt'), 'agenda for the meeting\n');
   mkdirSync(path.join(tmp, 'elsewhere'));
   writeFileSync(path.join(tmp, 'elsewhere', 'secret.txt'), 'not for attaching\n');
 
-  packed = await packMcpb({ stageDir: path.join(tmp, 'stage'), outFile: path.join(tmp, 'icloud-mail-test.mcpb'), typecheck: false, log: null });
+  packed = await packMcpb({ stageDir: path.join(tmp, 'stage'), outFile: path.join(tmp, 'gmail-mail-test.mcpb'), typecheck: false, log: null });
   await runMcpb(['unpack', packed.file, unpacked]);
   manifest = MANIFEST_SCHEMAS['0.3'].parse(JSON.parse(readFileSync(path.join(unpacked, 'manifest.json'), 'utf8')));
   await resetMailServer();
@@ -124,7 +124,7 @@ describe('the unpacked server, started like Claude Desktop with only the require
   it('receives blank optional values, a literal ${HOME} default and one argument per attach folder', () => {
     expect(env['GMAIL_IMAP_USER']).toBe('');
     expect(env['MAIL_FROM_ADDRESS']).toBe('');
-    expect(env['MAIL_ATTACHMENT_DIR']).toBe('${HOME}/Downloads/iCloud Mail Attachments');
+    expect(env['MAIL_ATTACHMENT_DIR']).toBe('${HOME}/Downloads/Gmail Attachments');
     expect(args.slice(1)).toEqual([ATTACH_FROM_DIRS_FLAG, '${HOME}/Desktop', '${HOME}/Documents', '${HOME}/Downloads']);
   });
 
@@ -146,7 +146,7 @@ describe('the unpacked server, started like Claude Desktop with only the require
     expect(info.from).toMatchObject({ default: ACCOUNT, name: null, allowed: [ACCOUNT] });
     expect(info.features).toMatchObject({ send: true, permanent_delete: false, read_only: false, confirm_dialog: false, rate_limit: { max_sends_per_hour: 30 } });
     expect(info.limits.max_body_chars).toBe(20000);
-    expect(info.attachment_dir).toBe(path.join(home, 'Downloads', 'iCloud Mail Attachments'));
+    expect(info.attachment_dir).toBe(path.join(home, 'Downloads', 'Gmail Attachments'));
     expect(info.attach_from_dirs).toEqual([path.join(home, 'Desktop'), path.join(home, 'Documents'), path.join(home, 'Downloads')]);
     expect(info.audit_log).toBe(defaultAuditLogPath(process.platform, home));
   });
@@ -170,12 +170,12 @@ describe('the unpacked server, started like Claude Desktop with only the require
     expect(kickoff.messages.map((m) => `${m.mailbox}/${m.uid}`).sort()).toEqual(['Drafts/1', 'INBOX/22', 'INBOX/23', 'Sent Messages/2']);
   });
 
-  it('saves attachments under the expanded ${HOME}/Downloads/iCloud Mail Attachments', async () => {
+  it('saves attachments under the expanded ${HOME}/Downloads/Gmail Attachments', async () => {
     const r = await s.call('download_attachment', { mailbox: 'INBOX', uid: 7, part: '2' });
     expect(r.isError).toBe(false);
     const meta = leadingJson<{ path: string; filename: string }>(r.text);
     expect(meta.filename).toBe('notes.txt');
-    expect(meta.path).toBe(path.join(home, 'Downloads', 'iCloud Mail Attachments', 'notes.txt'));
+    expect(meta.path).toBe(path.join(home, 'Downloads', 'Gmail Attachments', 'notes.txt'));
     expect(existsSync(meta.path)).toBe(true);
   });
 
@@ -286,7 +286,7 @@ describe('the unpacked server when the host passes literal ${user_config.*} plac
     expect(info.from).toMatchObject({ default: ACCOUNT, name: null, allowed: [ACCOUNT] });
     expect(info.features).toMatchObject({ send: true, permanent_delete: false, read_only: false, confirm_dialog: false, rate_limit: { max_sends_per_hour: 30 } });
     expect(info.limits.max_body_chars).toBe(20000);
-    expect(info.attachment_dir).toBe(path.join(home, 'Downloads', 'iCloud Mail Attachments'));
+    expect(info.attachment_dir).toBe(path.join(home, 'Downloads', 'Gmail Attachments'));
     expect(info.attach_from_dirs).toEqual([path.join(home, 'Desktop'), path.join(home, 'Documents'), path.join(home, 'Downloads')]);
   });
 

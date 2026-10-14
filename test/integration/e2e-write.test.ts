@@ -46,26 +46,20 @@ describe('mark_messages', () => {
     expect(await rawFlags('INBOX', 29)).not.toContain('\\Seen');
   });
 
-  it('sets Apple Mail flag colours with the right bits, and unflagging clears them', async () => {
-    const purple = json<Marked>(await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flag_color: 'purple' }));
-    expect(purple.messages[0]).toMatchObject({ flagged: true, flag_color: 'purple' });
-    expect(((await rawFlags('INBOX', 2)) ?? []).filter((f) => f.startsWith('$MailFlagBit') || f === '\\Flagged').sort()).toEqual(['$MailFlagBit0', '$MailFlagBit2', '\\Flagged']);
-    const gray = json<Marked>(await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flag_color: 'gray' }));
-    expect(gray.messages[0]?.flag_color).toBe('gray');
-    expect(((await rawFlags('INBOX', 2)) ?? []).filter((f) => f.startsWith('$MailFlagBit')).sort()).toEqual(['$MailFlagBit1', '$MailFlagBit2']);
+  it('stars and unstars (\\Flagged); colours are not offered on Gmail', async () => {
+    const on = json<Marked>(await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flagged: true }));
+    expect(on.messages[0]).toMatchObject({ flagged: true });
+    expect(await rawFlags('INBOX', 2)).toContain('\\Flagged');
     const off = json<Marked>(await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flagged: false }));
-    expect(off.messages[0]).toMatchObject({ flagged: false, flag_color: null });
-    expect(((await rawFlags('INBOX', 2)) ?? []).some((f) => f === '\\Flagged' || f.startsWith('$MailFlagBit'))).toBe(false);
+    expect(off.messages[0]).toMatchObject({ flagged: false });
+    expect(((await rawFlags('INBOX', 2)) ?? []).includes('\\Flagged')).toBe(false);
   });
 
   it('rejects an empty or contradictory request', async () => {
     const none = await s.call('mark_messages', { mailbox: 'INBOX', uids: [2] });
     expect(none.isError).toBe(true);
-    expect(none.text).toMatch(/at least one of read, flagged or flag_color/);
-    const clash = await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flagged: false, flag_color: 'red' });
-    expect(clash.isError).toBe(true);
-    expect(clash.text).toMatch(/implies flagged/);
-    const color = await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flag_color: 'pink' });
+    expect(none.text).toMatch(/at least one of read or flagged/);
+    const color = await s.call('mark_messages', { mailbox: 'INBOX', uids: [2], flag_color: 'red' });
     expect(color.isError).toBe(true);
     expect(color.text).toMatch(/Input validation error/i);
   });
@@ -140,7 +134,7 @@ describe('save_draft', () => {
     expect(r.isError).toBe(false);
     const d = json<{ saved: boolean; mailbox: string; uid: number; message_id: string; note: string }>(r);
     expect(d).toMatchObject({ saved: true, mailbox: 'Drafts', uid: 3 });
-    expect(d.note).toMatch(/Apple Mail's Drafts/);
+    expect(d.note).toMatch(/Gmail's Drafts/);
     expect(await rawFlags('Drafts', d.uid)).toEqual(expect.arrayContaining(['\\Draft', '\\Seen']));
     const src = (await rawSource('Drafts', d.uid))?.toString('utf8') ?? '';
     expect(src).toMatch(/^Bcc: hidden@example\.net\r$/m);

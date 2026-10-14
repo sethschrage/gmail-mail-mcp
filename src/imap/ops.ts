@@ -120,7 +120,7 @@ export interface MarkResult {
 export async function markMessages(imap: ImapManager, mailbox: MailboxInfo, uidsIn: readonly number[], req: MarkRequest): Promise<MarkResult> {
   const uids = validateUids(uidsIn);
   if (req.read === undefined && req.flagged === undefined && req.flagColor === undefined) {
-    throw new MailError('INVALID_INPUT', 'Give at least one of read, flagged or flag_color.');
+    throw new MailError('INVALID_INPUT', 'Give at least one of read or flagged.');
   }
   if (req.flagColor !== undefined && req.flagged === false) {
     throw new MailError('INVALID_INPUT', 'flag_color implies flagged; it cannot be combined with flagged: false.');

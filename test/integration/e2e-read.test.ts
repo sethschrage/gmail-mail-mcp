@@ -88,7 +88,6 @@ describe('search_messages', () => {
   it('combines criteria, pages, and omits snippets on request', async () => {
     expect(json<SearchResult>(await s.call('search_messages', { from: 'alice@example.com' })).messages.map((m) => m.uid)).toEqual([29, 3]);
     expect(json<SearchResult>(await s.call('search_messages', { subject: 'kickoff', mailbox: 'inbox' })).messages.map((m) => m.uid)).toEqual([23, 22]);
-    expect(json<SearchResult>(await s.call('search_messages', { flag_color: 'green' })).messages.map((m) => m.uid)).toEqual([18]);
     expect(json<SearchResult>(await s.call('search_messages', { flagged: true, unread: true })).messages.map((m) => m.uid)).toEqual([18]);
     expect(json<SearchResult>(await s.call('search_messages', { min_size_kb: 1000 })).messages.map((m) => m.uid)).toEqual([24]);
     expect(json<SearchResult>(await s.call('search_messages', { since: '2026-09-01', before: '2026-09-20', limit: 100 })).messages.map((m) => m.uid)).toEqual([27, 26, 25]);

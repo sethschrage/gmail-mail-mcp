@@ -393,21 +393,24 @@ describe.skipIf(skipProfile(noUidplusUp))('no-uidplus profile: stray special-loo
     await resetProfile('no-uidplus');
   });
 
-  it('uses Apple\'s folders for Trash, Sent and Drafts', async () => {
+  it('without SPECIAL-USE (not Gmail), falls back to imapflow\'s name guess for Trash, Sent and Drafts', async () => {
+    // The Gmail fork no longer prefers Apple's folder names: Gmail always marks its folders with
+    // SPECIAL-USE. On a server without it, the alphabetically first name match wins.
     const info = await p.getAccountInfo();
-    expect(info['special_folders']).toMatchObject({ sent: 'Sent Messages', trash: 'Deleted Messages', drafts: 'Drafts' });
+    expect(info['special_folders']).toMatchObject({ sent: 'Sent Items', trash: 'Bin', drafts: 'Draft' });
     const trashed = await p.trashMessages({ mailbox: 'INBOX', uids: [2] });
-    expect(trashed.destination).toBe('Deleted Messages');
+    expect(trashed.destination).toBe('Bin');
     const sent = asSent(await p.sendEmail({ to: ['friend@example.com'], subject: 'stray folders', body: 'x' }));
-    expect(sent.sent_copy_mailbox).toBe('Sent Messages');
-    expect(await rawUidsByMessageId('Sent Messages', sent.message_id, port)).toHaveLength(1);
+    expect(sent.sent_copy_mailbox).toBe('Sent Items');
+    expect(await rawUidsByMessageId('Sent Items', sent.message_id, port)).toHaveLength(1);
   });
 
   it('save_draft reports the UID of the draft it saved (looked up by Message-ID)', async () => {
     const d = await p.saveDraft({ body: 'uid check', subject: 'uid check' });
     expect(d.uid).not.toBeNull();
+    const drafts = String(((await p.getAccountInfo())['special_folders'] as Record<string, string>)['drafts']);
     const mid = await withRawImap(async (c) => {
-      const lock = await c.getMailboxLock('Drafts', { readOnly: true });
+      const lock = await c.getMailboxLock(drafts, { readOnly: true });
       try {
         const msg = await c.fetchOne(String(d.uid), { envelope: true }, { uid: true });
         return msg ? (msg.envelope?.messageId ?? null) : null;
@@ -416,7 +419,7 @@ describe.skipIf(skipProfile(noUidplusUp))('no-uidplus profile: stray special-loo
       }
     }, port);
     expect(mid).toBe(d.message_id);
-    expect(await rawFlags('Drafts', d.uid as number, port)).toContain('\\Draft');
+    expect(await rawFlags(drafts, d.uid as number, port)).toContain('\\Draft');
   });
 });
 

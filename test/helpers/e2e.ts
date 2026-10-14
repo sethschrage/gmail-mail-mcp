@@ -7,7 +7,7 @@ import type { Env } from './mcp.js';
 
 export const READ_TOOLS = ['list_mailboxes', 'search_messages', 'get_message', 'get_thread', 'get_account_info'];
 export const FILE_TOOLS = ['download_attachment'];
-export const MAILBOX_TOOLS = ['mark_messages', 'move_messages', 'archive_messages', 'trash_messages', 'create_mailbox', 'rename_mailbox', 'delete_mailbox'];
+export const MAILBOX_TOOLS = ['mark_messages', 'label_messages', 'move_messages', 'archive_messages', 'trash_messages', 'create_mailbox', 'rename_mailbox', 'delete_mailbox'];
 export const DRAFT_TOOLS = ['save_draft'];
 export const SEND_TOOLS = ['send_email', 'reply_to_message', 'forward_message', 'send_draft'];
 export const DELETE_TOOLS = ['delete_messages_permanently'];
@@ -29,6 +29,7 @@ export const EXPECTED_HINTS: Record<string, Hints> = {
   get_account_info: READ,
   download_attachment: WRITE_IDEMPOTENT,
   mark_messages: WRITE_IDEMPOTENT,
+  label_messages: WRITE_IDEMPOTENT,
   move_messages: WRITE_IDEMPOTENT,
   archive_messages: WRITE_IDEMPOTENT,
   trash_messages: WRITE_NON_IDEMPOTENT,
@@ -54,6 +55,7 @@ export const SAMPLE_ARGS: Record<string, Record<string, unknown>> = {
   get_account_info: {},
   download_attachment: { mailbox: 'INBOX', uid: 6, part: '2' },
   mark_messages: { mailbox: 'INBOX', uids: [1], read: true },
+  label_messages: { mailbox: 'INBOX', uids: [1], add: ['Receipts'] },
   move_messages: { mailbox: 'INBOX', uids: [1], destination: 'Receipts' },
   archive_messages: { mailbox: 'INBOX', uids: [1] },
   trash_messages: { mailbox: 'INBOX', uids: [1] },
